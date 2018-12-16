@@ -23,13 +23,13 @@ void block_coop_kernel(V_ID rowLeft,
                        int hiddenDim,
                        const NodeStruct* row_ptrs,
                        const EdgeStruct* col_idxs,
-                       float* old_h,
+                       const float* old_h,
                        float* new_h)
 {
   assert(blockDim.x % hiddenDim == 0);
   assert(MIN_HIDDEN_DIM <= hiddenDim);
   int vtxPerBlock = blockDim.x / hiddenDim;
-  typedef cub::BlockScan<E_ID, CUDA_NUM_THREADS / MIN_HIDDEN_DIM> BlockScan;
+  typedef cub::BlockScan<E_ID, CUDA_NUM_THREADS> BlockScan;
   __shared__ BlockScan::TempStorage temp_storage;
   __shared__ E_ID blkColStart;
   __shared__ float acc_h[CUDA_NUM_THREADS];
@@ -83,15 +83,15 @@ GNNLayer::GNNLayer(Graph* _graph, Handler _handle,
   // denseW [_inputDim x _hiddenDim]
   checkCUDA(cudaMalloc(&denseW, inputDim * hiddenDim * sizeof(float)));
   float scale = sqrt(6.0 / (inputDim + hiddenDim));
-  init_weights(denseW, inputDim * hiddenDim, scale);
+  init_weights(denseW, inputDim * hiddenDim, scale, handle.gen);
   // neighW [_hiddenDIm x _outputDim]
   checkCUDA(cudaMalloc(&neighW, hiddenDim * outputDim * sizeof(float)));
   scale = sqrt(6.0 / (hiddenDim + outputDim));
-  init_weights(neighW, hiddenDim * outputDim, scale);
+  init_weights(neighW, hiddenDim * outputDim, scale, handle.gen);
   // selfW [_inputDim x _outputDim]
   checkCUDA(cudaMalloc(&selfW, inputDim * outputDim * sizeof(float)));
   scale = sqrt(6.0 / (inputDim + outputDim));
-  init_weights(selfW, inputDim * outputDim, scale);
+  init_weights(selfW, inputDim * outputDim, scale, handle.gen);
   // initialize tensors
   checkCUDNN(cudnnCreateActivationDescriptor(&actiDesc));
   checkCUDNN(cudnnSetActivationDescriptor(actiDesc, CUDNN_ACTIVATION_RELU,
@@ -106,6 +106,15 @@ GNNLayer::GNNLayer(Graph* _graph, Handler _handle,
                                         CUDNN_TENSOR_NCHW,
                                         CUDNN_DATA_FLOAT,
                                         graph->nv, outputDim, 1, 1));
+}
+
+void print(const float* ptr, int num)
+{
+  float* ptrZC = (float*) malloc(num * sizeof(float));
+  checkCUDA(cudaMemcpy(ptrZC, ptr, num * sizeof(float), cudaMemcpyDeviceToHost));
+  for (int i = 0; i < num; i++)
+    printf("%.4lf ", ptrZC[i]);
+  printf("\n");
 }
 
 void GNNLayer::forward(const float* inputPtr,
@@ -149,6 +158,20 @@ void GNNLayer::forward(const float* inputPtr,
   } else {
     assert(false);
   }
+  //printf("hiddenPtr:\n");
+  //print(hiddenPtr, graph->nv * hiddenDim);
+  //printf("aggrePtr:\n");
+  //print(aggrePtr, graph->nv * hiddenDim);
+  //printf("outputPtr:\n");
+  //print(outputPtr, graph->nv * outputDim);
+}
+
+Handler::Handler(void)
+{
+  checkCUDA(cublasCreate(&blas));
+  checkCUDNN(cudnnCreate(&dnn));
+  curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
+  curandSetPseudoRandomGeneratorSeed(gen, 1234ULL);
 }
 
 __global__
@@ -160,13 +183,23 @@ void scale_kernel(float* ptr, int size, float a, float b)
   }
 }
 
-void init_weights(float* ptr, int num, float scale)
+__global__
+void seq_kernel(float* ptr, int size)
 {
-  curandGenerator_t genGPU;
-  curandCreateGenerator(&genGPU, CURAND_RNG_PSEUDO_DEFAULT);
-  curandSetPseudoRandomGeneratorSeed(genGPU, 1234ULL);
+  CUDA_KERNEL_LOOP(i, size)
+  {
+    ptr[i] = 1;
+  }
+}
+
+void init_weights(float* ptr, int num, float scale, curandGenerator_t genGPU)
+{
   curandGenerateUniform(genGPU, ptr, num);
   scale_kernel<<<GET_BLOCKS(num), CUDA_NUM_THREADS>>>(
       ptr, num, -scale, scale);
-  curandDestroyGenerator(genGPU);
+}
+
+void seq_weights(float* ptr, int num)
+{
+  seq_kernel<<<GET_BLOCKS(num), CUDA_NUM_THREADS>>>(ptr, num);
 }

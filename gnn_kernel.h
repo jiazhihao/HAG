@@ -17,7 +17,9 @@
 #define __GNN_KERNEL_H__
 #include "gnn.h"
 
-void init_weights(float* ptr, int num, float scale);
+void init_weights(float* ptr, int num, float scale, curandGenerator_t gen);
+
+void seq_weights(float* ptr, int num);
 
 __global__
 void block_coop_kernel(V_ID rowLeft, V_ID rowRight,

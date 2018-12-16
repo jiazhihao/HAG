@@ -8,3 +8,6 @@ LDFLAGS = -lcudnn -lcublas -lcurand
 
 gnn: gnn.cc gnn_kernel.cu
 	nvcc -o $@ $(INCFLAGS) $(CXXFLAGS) $^ $(LDFLAGS)
+
+clean:
+	$(RM) gnn

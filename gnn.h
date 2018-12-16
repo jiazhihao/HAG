@@ -73,7 +73,7 @@ inline int GET_BLOCKS(const int N)
 
 typedef int V_ID;
 typedef int E_ID;
-#define HIDDEN_SIZE 256
+#define HIDDEN_SIZE 64
 #define NUM_LAYERS 2
 
 struct NodeStruct {
@@ -93,8 +93,10 @@ enum AggMode {
 };
 
 struct Handler {
+  Handler(void);
   cudnnHandle_t dnn;
   cublasHandle_t blas;
+  curandGenerator_t gen;
 };
 
 struct Graph {

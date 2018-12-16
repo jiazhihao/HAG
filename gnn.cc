@@ -20,21 +20,23 @@
 
 int main()
 {
-  FILE* file = fopen("BZR_MD/BZR_MD_A.txt", "r");
+  //FILE* file = fopen("BZR_MD/BZR_MD_A.txt", "r");
+  FILE* file = fopen("input.txt", "r");
   V_ID u, v;
   V_ID nv = 0;
   E_ID ne = 0;
   std::map<V_ID, std::set<V_ID>* > inEdges;
 
   while (fscanf(file, "%d, %d", &u, &v) != EOF) {
+    ne ++;
     if (std::max(u, v) >= nv)
       nv = std::max(u, v) + 1;
     if (inEdges.find(v) == inEdges.end())
       inEdges[v] = new std::set<V_ID>();
-    else
-      inEdges[v]->insert(u);
+    inEdges[v]->insert(u);
   }
   fclose(file);
+  printf("nv(%d) ne (%d)\n", nv, ne);
 
   NodeStruct *rowPtrZC, *rowPtrFB;
   EdgeStruct *colIdxZC, *colIdxFB;
@@ -54,19 +56,22 @@ int main()
   }
   checkCUDA(cudaMalloc(&rowPtrFB, nv * sizeof(NodeStruct)));
   checkCUDA(cudaMalloc(&colIdxFB, ne * sizeof(EdgeStruct)));
+  checkCUDA(cudaMemcpy(rowPtrFB, rowPtrZC, nv * sizeof(NodeStruct),
+                       cudaMemcpyHostToDevice));
+  checkCUDA(cudaMemcpy(colIdxFB, colIdxZC, ne * sizeof(EdgeStruct),
+                       cudaMemcpyHostToDevice));
   float* hidden[4];
   for (int i = 0; i < 4; i++)
     checkCUDA(cudaMalloc(&hidden[i], nv * HIDDEN_SIZE * sizeof(float)));
   Graph graph(nv, ne, rowPtrFB, colIdxFB);
   Handler handle;
-  checkCUDA(cublasCreate(&handle.blas));
-  checkCUDNN(cudnnCreate(&handle.dnn));
+
   GNNLayer* layer[NUM_LAYERS];
   for (int i = 0; i < NUM_LAYERS; i++)
     layer[i] = new GNNLayer(&graph, handle, HIDDEN_SIZE, HIDDEN_SIZE, HIDDEN_SIZE,
                             ACT_MODE_RELU, AGG_MODE_MEAN_POOLING);
 
-  init_weights(hidden[0], nv * HIDDEN_SIZE, 0.05);
+  init_weights(hidden[0], nv * HIDDEN_SIZE, 0.5, handle.gen);
   for (int i = 0; i < NUM_LAYERS; i++) {
     layer[i]->forward(hidden[0], hidden[1], hidden[2], hidden[3]);
   }
