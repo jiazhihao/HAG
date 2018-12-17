@@ -100,8 +100,8 @@ struct Handler {
   curandGenerator_t gen;
 };
 
-struct Graph {
-  Graph(V_ID nv, E_ID ne, V_ID ng,
+struct GNNModel {
+  GNNModel(V_ID nv, E_ID ne, V_ID ng,
         NodeStruct* inRowPtr, EdgeStruct* inColIdx,
         NodeStruct* outRowPtr, EdgeStruct* outColIdx,
         NodeStruct* grInRowPtr, EdgeStruct* grInColIdx,
@@ -112,18 +112,31 @@ struct Graph {
   EdgeStruct *inColIdx, *outColIdx, *grInColIdx, *grOutColIdx;
 };
 
-class GNNLayer {
+class Layer {
 public:
-  GNNLayer(Graph* graph, Handler handle,
+  Layer(GNNModel* graph, Handler handle,
+        float* inputPtr, float *inputGradPtr);
+  virtual void forward(void) = 0;
+  virtual void backward(void) = 0;
+  float *outputPtr, *outputGradPtr;
+protected:
+  GNNModel* graph;
+  Handler handle;
+  float *inputPtr, *inputGradPtr;
+};
+
+// hiddenPtr [graph->nv x hiddenDim]
+// aggrePtr [graph->nv x hiddenDim]
+// outputPtr [graph->nv x outputDim]
+class GNNLayer : public Layer {
+public:
+  GNNLayer(GNNModel* graph, Handler handle,
+           float* inputPtr, float* inputGradPtr,
            int inputDim, int hiddenDim, int outputDim,
-           ActMode act, AggMode agg,
-           float* inputPtr, float* inputGradPtr);
+           ActMode act, AggMode agg);
   void forward(void);
   void backward(void);
-  float *outputPtr, *outputGradPtr;
 private:
-  Graph* graph;
-  Handler handle;
   int inputDim, hiddenDim, outputDim;
   float *denseWPtr, *denseWGradPtr;
   float *neighWPtr, *neighWGradPtr;
@@ -132,7 +145,6 @@ private:
   AggMode aggMode;
   cudnnActivationDescriptor_t actiDesc;
   cudnnTensorDescriptor_t hiddenTensor, outputTensor;
-  float *inputPtr, *inputGradPtr;
   float *hiddenPtr, *hiddenGradPtr;
   float *aggrePtr, *aggreGradPtr;
 };
@@ -140,21 +152,17 @@ private:
 
 // aggrePtr [graph->ng x inputDim]
 // outputPtr [graph->ng x numClass]
-class GCLayer {
+class GCLayer : public Layer {
 public:
-  GCLayer(Graph* graph, Handler handle,
-          int inputDim, int numClass,
-          float *inputPtr, float* inputGradPtr);
+  GCLayer(GNNModel* graph, Handler handle,
+          float *inputPtr, float* inputGradPtr,
+          int inputDim, int numClass);
   void forward(void);
   void backward(void);
-  float *outputPtr, *outputGradPtr;
 private:
-  Graph *graph;
-  Handler handle;
   int inputDim, numClass;
   float *denseWPtr, *denseWGradPtr;
   cudnnTensorDescriptor_t outputTensor;
-  float *inputPtr, *inputGradPtr;
   float *aggrePtr, *aggreGradPtr;
 };
 #endif

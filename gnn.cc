@@ -15,6 +15,7 @@
 
 #include <map>
 #include <set>
+#include <vector>
 #include "gnn.h"
 #include "gnn_kernel.h"
 
@@ -66,34 +67,40 @@ int main()
     checkCUDA(cudaMalloc(&hidden[i], nv * HIDDEN_SIZE * sizeof(float)));
   init_weights(hidden[0], nv * HIDDEN_SIZE, 0.5, handle.gen);
   int ng = nv;
-  Graph graph(nv, ne, ng, rowPtrFB, colIdxFB, rowPtrFB, colIdxFB, rowPtrFB, colIdxFB, rowPtrFB, colIdxFB);
+  GNNModel graph(nv, ne, ng, rowPtrFB, colIdxFB, rowPtrFB, colIdxFB, rowPtrFB, colIdxFB, rowPtrFB, colIdxFB);
 
-  GNNLayer* layer[NUM_LAYERS];
+  std::vector<Layer*> layers;
   for (int i = 0; i < NUM_LAYERS; i++) {
-    float* inputPtr = (i == 0) ? hidden[0] : layer[i-1]->outputPtr;
-    float* inputGradPtr = (i == 0) ? NULL : layer[i-1]->outputGradPtr;
-    layer[i] = new GNNLayer(&graph, handle, HIDDEN_SIZE, HIDDEN_SIZE, HIDDEN_SIZE,
-                            ACT_MODE_RELU, AGG_MODE_MEAN_POOLING,
-                            inputPtr, inputGradPtr);
+    float* inputPtr = (i == 0) ? hidden[0] : layers[i-1]->outputPtr;
+    float* inputGradPtr = (i == 0) ? NULL : layers[i-1]->outputGradPtr;
+    layers.push_back(new GNNLayer(&graph, handle, inputPtr, inputGradPtr,
+                             HIDDEN_SIZE, HIDDEN_SIZE, HIDDEN_SIZE,
+                             ACT_MODE_RELU, AGG_MODE_MEAN_POOLING));
   }
-  GCLayer* gcLayer = new GCLayer(&graph, handle, HIDDEN_SIZE, NUM_CLASS,
-                                 layer[NUM_LAYERS-1]->outputPtr,
-                                 layer[NUM_LAYERS-1]->outputGradPtr);
+  GCLayer* gcLayer = new GCLayer(&graph, handle,
+                                 layers[layers.size()-1]->outputPtr,
+                                 layers[layers.size()-1]->outputGradPtr,
+                                 HIDDEN_SIZE, NUM_CLASS);
 
-  for (int i = 0; i < NUM_LAYERS; i++) {
-    layer[i]->forward();
+  for (int i = 0; i < layers.size(); i++) {
+    layers[i]->forward();
   }
 }
 
-Graph::Graph(V_ID _nv, E_ID _ne, V_ID _ng,
+GNNModel::GNNModel(V_ID _nv, E_ID _ne, V_ID _ng,
              NodeStruct* _inRowPtr, EdgeStruct* _inColIdx,
              NodeStruct* _outRowPtr, EdgeStruct* _outColIdx,
              NodeStruct* _grInRowPtr, EdgeStruct* _grInColIdx,
              NodeStruct* _grOutRowPtr, EdgeStruct* _grOutColIdx)
 : nv(_nv), ne(_ne), ng(_ng),
-inRowPtr(_inRowPtr), inColIdx(_inColIdx),
-outRowPtr(_outRowPtr), outColIdx(_outColIdx),
-grInRowPtr(_grInRowPtr), grInColIdx(_grInColIdx),
-grOutRowPtr(_grOutRowPtr), grOutColIdx(_grOutColIdx)
+  inRowPtr(_inRowPtr), inColIdx(_inColIdx),
+  outRowPtr(_outRowPtr), outColIdx(_outColIdx),
+  grInRowPtr(_grInRowPtr), grInColIdx(_grInColIdx),
+  grOutRowPtr(_grOutRowPtr), grOutColIdx(_grOutColIdx)
 {}
 
+Layer::Layer(GNNModel* _graph, Handler _handle,
+             float* _inputPtr, float* _inputGradPtr)
+: graph(_graph), handle(_handle),
+  inputPtr(_inputPtr), inputGradPtr(_inputGradPtr)
+{}

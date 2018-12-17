@@ -80,15 +80,14 @@ void block_coop_kernel(V_ID rowLeft,
   }
 }
 
-GNNLayer::GNNLayer(Graph* _graph, Handler _handle,
+GNNLayer::GNNLayer(GNNModel* _graph, Handler _handle,
+                   float* _inputPtr, float* _inputGradPtr,
                    int _inputDim, int _hiddenDim,
                    int _outputDim,
-                   ActMode _actMode, AggMode _aggMode,
-                   float* _inputPtr, float* _inputGradPtr)
-: graph(_graph), handle(_handle), 
+                   ActMode _actMode, AggMode _aggMode)
+: Layer(_graph, _handle, _inputPtr, _inputGradPtr),
   inputDim(_inputDim), hiddenDim(_hiddenDim), outputDim(_outputDim),
-  actMode(_actMode), aggMode(_aggMode),
-  inputPtr(_inputPtr), inputGradPtr(_inputGradPtr)
+  actMode(_actMode), aggMode(_aggMode)
 {
   // Create and init weights
   // denseW [_inputDim x _hiddenDim]
@@ -246,12 +245,11 @@ void GNNLayer::backward(void)
   
 }
 
-GCLayer::GCLayer(Graph* _graph, Handler _handle,
-                 int _inputDim, int _numClass,
-                 float* _inputPtr, float* _inputGradPtr)
-: graph(_graph), handle(_handle),
-  inputDim(_inputDim), numClass(_numClass),
-  inputPtr(_inputPtr), inputGradPtr(_inputGradPtr)
+GCLayer::GCLayer(GNNModel* _graph, Handler _handle,
+                 float* _inputPtr, float* _inputGradPtr,
+                 int _inputDim, int _numClass)
+: Layer(_graph, _handle, _inputPtr, _inputGradPtr),
+  inputDim(_inputDim), numClass(_numClass)
 {
   // Create and init weights
   // denseW [_inputDim x _numClass]
