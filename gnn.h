@@ -104,8 +104,8 @@ struct Handler {
 };
 
 struct Graph {
-  Graph(void): nv(0), ne(0), rowPtr(NULL), colIdx(NULL) {};
-  V_ID nv;
+  Graph(void): nvSrc(0), nvDst(0), ne(0), rowPtr(NULL), colIdx(NULL) {};
+  V_ID nvSrc, nvDst;
   E_ID ne;
   NodeStruct *rowPtr;
   EdgeStruct *colIdx;
@@ -114,13 +114,16 @@ struct Graph {
 class GNNModel {
 public:
   GNNModel(Handler handle);
-  void set_graph(Graph& graph, int nv,
+  void set_graph(Graph& graph, int nvSrc, int nvDst,
                  std::map<V_ID, std::set<V_ID>* >& inEdges);
-  void set_in_graph(int nv, std::map<V_ID, std::set<V_ID>* >& edgeList);
-  void set_out_graph(int nv, std::map<V_ID, std::set<V_ID>* >& edgeList);
-  void set_hyper_in_graph(int nv, std::map<V_ID, std::set<V_ID>* >& edgeList);
-  void set_hyper_out_graph(int nv, std::map<V_ID, std::set<V_ID>* >& edgeList);
-
+  void set_in_graph(int nvSrc, int nvDst,
+                    std::map<V_ID, std::set<V_ID>* >& edgeList);
+  void set_out_graph(int nvSrc, int nvDst,
+                     std::map<V_ID, std::set<V_ID>* >& edgeList);
+  void set_hyper_in_graph(int nvSrc, int nvDst,
+                          std::map<V_ID, std::set<V_ID>* >& edgeList);
+  void set_hyper_out_graph(int nvSrc, int nvDst,
+                           std::map<V_ID, std::set<V_ID>* >& edgeList);
 public:
   Handler handle;
   Graph inGraph, outGraph, hyInGraph, hyOutGraph;

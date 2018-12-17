@@ -42,8 +42,8 @@ int main()
   fclose(file);
   printf("nv(%d) ne (%d)\n", nv, ne);
   GNNModel model(handle);
-  model.set_in_graph(nv, inEdges);
-  model.set_out_graph(nv, outEdges);
+  model.set_in_graph(nv, nv, inEdges);
+  model.set_out_graph(nv, nv, outEdges);
 
   NodeStruct *rowPtrZC, *rowPtrFB;
   EdgeStruct *colIdxZC, *colIdxFB;
@@ -94,20 +94,21 @@ int main()
 GNNModel::GNNModel(Handler _handle)
 : handle(_handle) {}
 
-void GNNModel::set_graph(Graph& graph, int nv,
+void GNNModel::set_graph(Graph& graph, int nvSrc, int nvDst,
                          std::map<V_ID, std::set<V_ID>* >& inEdges)
 {
-  graph.nv = nv;
+  graph.nvSrc = nvSrc;
+  graph.nvDst = nvDst;
   graph.ne = 0;
-  for (int v = 0; v < nv; v++)
+  for (int v = 0; v < nvDst; v++)
     if (inEdges.find(v) != inEdges.end())
       graph.ne += inEdges[v]->size();
   NodeStruct *rowPtrZC, *rowPtrFB;
   EdgeStruct *colIdxZC, *colIdxFB;
-  rowPtrZC = (NodeStruct*) malloc(graph.nv * sizeof(NodeStruct));
+  rowPtrZC = (NodeStruct*) malloc(graph.nvDst * sizeof(NodeStruct));
   colIdxZC = (EdgeStruct*) malloc(graph.ne * sizeof(EdgeStruct));
   E_ID count = 0;
-  for (int v = 0; v < nv; v++) {
+  for (int v = 0; v < nvDst; v++) {
     if (inEdges.find(v) != inEdges.end()) {
       std::set<V_ID>::const_iterator it;
       for (it = inEdges[v]->begin(); it != inEdges[v]->end(); it++) {
@@ -118,9 +119,9 @@ void GNNModel::set_graph(Graph& graph, int nv,
     }
     rowPtrZC[v].index = count;
   }
-  checkCUDA(cudaMalloc(&rowPtrFB, graph.nv * sizeof(NodeStruct)));
+  checkCUDA(cudaMalloc(&rowPtrFB, graph.nvDst * sizeof(NodeStruct)));
   checkCUDA(cudaMalloc(&colIdxFB, graph.ne * sizeof(EdgeStruct)));
-  checkCUDA(cudaMemcpy(rowPtrFB, rowPtrZC, graph.nv * sizeof(NodeStruct),
+  checkCUDA(cudaMemcpy(rowPtrFB, rowPtrZC, graph.nvDst * sizeof(NodeStruct),
                        cudaMemcpyHostToDevice));
   checkCUDA(cudaMemcpy(colIdxFB, colIdxZC, graph.ne * sizeof(EdgeStruct),
                        cudaMemcpyHostToDevice));
@@ -130,32 +131,36 @@ void GNNModel::set_graph(Graph& graph, int nv,
   graph.colIdx = colIdxFB;
 }
 
-void GNNModel::set_in_graph(int nv,
+void GNNModel::set_in_graph(int nvSrc, int nvDst,
          std::map<V_ID, std::set<V_ID>* >& edgeList)
 {
-  set_graph(inGraph, nv, edgeList);
-  printf("Add normal in-edge graph: nv(%d) ne(%d)\n", inGraph.nv, inGraph.ne);
+  set_graph(inGraph, nvSrc, nvDst, edgeList);
+  printf("Add normal in-edge graph: nvSrc(%d) nvDst(%d) ne(%d)\n",
+         inGraph.nvSrc, inGraph.nvDst, inGraph.ne);
 }
 
-void GNNModel::set_out_graph(int nv,
+void GNNModel::set_out_graph(int nvSrc, int nvDst,
          std::map<V_ID, std::set<V_ID>* >& edgeList)
 {
-  set_graph(outGraph, nv, edgeList);
-  printf("Add normal out-edge graph: nv(%d) ne(%d)\n", outGraph.nv, outGraph.ne);
+  set_graph(outGraph, nvSrc, nvDst, edgeList);
+  printf("Add normal out-edge graph: nvSrc(%d) nvDst(%d) ne(%d)\n",
+         outGraph.nvSrc, outGraph.nvDst, outGraph.ne);
 }
 
-void GNNModel::set_hyper_in_graph(int nv,
+void GNNModel::set_hyper_in_graph(int nvSrc, int nvDst,
          std::map<V_ID, std::set<V_ID>* >& edgeList)
 {
-  set_graph(hyInGraph, nv, edgeList);
-  printf("Add hyper in-edge graph: nv(%d) ne(%d)\n", hyInGraph.nv, hyInGraph.ne);
+  set_graph(hyInGraph, nvSrc, nvDst, edgeList);
+  printf("Add hyper in-edge graph: nvSrc(%d) nvDst(%d) ne(%d)\n",
+         hyInGraph.nvSrc, hyInGraph.nvDst, hyInGraph.ne);
 }
 
-void GNNModel::set_hyper_out_graph(int nv,
+void GNNModel::set_hyper_out_graph(int nvSrc, int nvDst,
          std::map<V_ID, std::set<V_ID>* >& edgeList)
 {
-  set_graph(hyOutGraph, nv, edgeList);
-  printf("Add hyper in-edge graph: nv(%d) ne(%d)\n", hyOutGraph.nv, hyOutGraph.ne);
+  set_graph(hyOutGraph, nvSrc, nvDst, edgeList);
+  printf("Add hyper in-edge graph: nvSrc(%d) nvDst(%d) ne(%d)\n",
+         hyOutGraph.nvSrc, hyOutGraph.nvDst, hyOutGraph.ne);
 }
 
 Layer::Layer(GNNModel* _model, Handler _handle,
