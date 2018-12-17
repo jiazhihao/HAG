@@ -24,6 +24,9 @@
 #include <cuda_runtime.h>
 #include <assert.h>
 #include <string.h>
+#include <map>
+#include <set>
+#include <vector>
 
 //=====================================================================
 // CUDA Helper Functions
@@ -100,27 +103,38 @@ struct Handler {
   curandGenerator_t gen;
 };
 
-struct GNNModel {
-  GNNModel(V_ID nv, E_ID ne, V_ID ng,
-        NodeStruct* inRowPtr, EdgeStruct* inColIdx,
-        NodeStruct* outRowPtr, EdgeStruct* outColIdx,
-        NodeStruct* grInRowPtr, EdgeStruct* grInColIdx,
-        NodeStruct* grOutRowPtr, EdgeStruct* grOutColIdx);
-  V_ID nv, ng, nvExt;
+struct Graph {
+  Graph(void): nv(0), ne(0), rowPtr(NULL), colIdx(NULL) {};
+  V_ID nv;
   E_ID ne;
-  NodeStruct *inRowPtr, *outRowPtr, *grInRowPtr, *grOutRowPtr;
-  EdgeStruct *inColIdx, *outColIdx, *grInColIdx, *grOutColIdx;
+  NodeStruct *rowPtr;
+  EdgeStruct *colIdx;
+};
+
+class GNNModel {
+public:
+  GNNModel(Handler handle);
+  void set_graph(Graph& graph, int nv,
+                 std::map<V_ID, std::set<V_ID>* >& inEdges);
+  void set_in_graph(int nv, std::map<V_ID, std::set<V_ID>* >& edgeList);
+  void set_out_graph(int nv, std::map<V_ID, std::set<V_ID>* >& edgeList);
+  void set_hyper_in_graph(int nv, std::map<V_ID, std::set<V_ID>* >& edgeList);
+  void set_hyper_out_graph(int nv, std::map<V_ID, std::set<V_ID>* >& edgeList);
+
+public:
+  Handler handle;
+  Graph inGraph, outGraph, hyInGraph, hyOutGraph;
 };
 
 class Layer {
 public:
-  Layer(GNNModel* graph, Handler handle,
+  Layer(GNNModel* model, Handler handle,
         float* inputPtr, float *inputGradPtr);
   virtual void forward(void) = 0;
   virtual void backward(void) = 0;
   float *outputPtr, *outputGradPtr;
 protected:
-  GNNModel* graph;
+  GNNModel* model;
   Handler handle;
   float *inputPtr, *inputGradPtr;
 };
@@ -130,7 +144,7 @@ protected:
 // outputPtr [graph->nv x outputDim]
 class GNNLayer : public Layer {
 public:
-  GNNLayer(GNNModel* graph, Handler handle,
+  GNNLayer(GNNModel* model, Handler handle,
            float* inputPtr, float* inputGradPtr,
            int inputDim, int hiddenDim, int outputDim,
            ActMode act, AggMode agg);
