@@ -75,6 +75,7 @@ typedef int V_ID;
 typedef int E_ID;
 #define HIDDEN_SIZE 64
 #define NUM_LAYERS 2
+#define NUM_CLASS 4
 
 struct NodeStruct {
   E_ID index;
@@ -100,28 +101,60 @@ struct Handler {
 };
 
 struct Graph {
-  Graph(V_ID nv, E_ID ne, NodeStruct* rowPtr, EdgeStruct* colIdx);
-  V_ID nv;
+  Graph(V_ID nv, E_ID ne, V_ID ng,
+        NodeStruct* inRowPtr, EdgeStruct* inColIdx,
+        NodeStruct* outRowPtr, EdgeStruct* outColIdx,
+        NodeStruct* grInRowPtr, EdgeStruct* grInColIdx,
+        NodeStruct* grOutRowPtr, EdgeStruct* grOutColIdx);
+  V_ID nv, ng, nvExt;
   E_ID ne;
-  NodeStruct* rowPtr;
-  EdgeStruct* colIdx;
+  NodeStruct *inRowPtr, *outRowPtr, *grInRowPtr, *grOutRowPtr;
+  EdgeStruct *inColIdx, *outColIdx, *grInColIdx, *grOutColIdx;
 };
 
 class GNNLayer {
 public:
   GNNLayer(Graph* graph, Handler handle,
            int inputDim, int hiddenDim, int outputDim,
-           ActMode act, AggMode agg);
-  void forward(const float* inputPtr, float* hiddenPtr,
-               float* aggrePtr, float* outputPtr);
+           ActMode act, AggMode agg,
+           float* inputPtr, float* inputGradPtr);
+  void forward(void);
+  void backward(void);
+  float *outputPtr, *outputGradPtr;
 private:
   Graph* graph;
   Handler handle;
   int inputDim, hiddenDim, outputDim;
-  float *denseW, *neighW, *selfW;
+  float *denseWPtr, *denseWGradPtr;
+  float *neighWPtr, *neighWGradPtr;
+  float *selfWPtr, *selfWGradPtr;
   ActMode actMode;
   AggMode aggMode;
   cudnnActivationDescriptor_t actiDesc;
   cudnnTensorDescriptor_t hiddenTensor, outputTensor;
+  float *inputPtr, *inputGradPtr;
+  float *hiddenPtr, *hiddenGradPtr;
+  float *aggrePtr, *aggreGradPtr;
+};
+
+
+// aggrePtr [graph->ng x inputDim]
+// outputPtr [graph->ng x numClass]
+class GCLayer {
+public:
+  GCLayer(Graph* graph, Handler handle,
+          int inputDim, int numClass,
+          float *inputPtr, float* inputGradPtr);
+  void forward(void);
+  void backward(void);
+  float *outputPtr, *outputGradPtr;
+private:
+  Graph *graph;
+  Handler handle;
+  int inputDim, numClass;
+  float *denseWPtr, *denseWGradPtr;
+  cudnnTensorDescriptor_t outputTensor;
+  float *inputPtr, *inputGradPtr;
+  float *aggrePtr, *aggreGradPtr;
 };
 #endif

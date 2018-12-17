@@ -18,6 +18,15 @@
 #define MIN_HIDDEN_DIM 32
 
 __global__
+void reluBackward(float *gradPtr, const float *input, int n)
+{
+  CUDA_KERNEL_LOOP(i, n)
+  {
+    gradPtr[i] = (input[i] > 0.0f) ? gradPtr[i] : 0;
+  }
+}
+
+__global__
 void block_coop_kernel(V_ID rowLeft,
                        V_ID rowRight,
                        int hiddenDim,
@@ -74,24 +83,29 @@ void block_coop_kernel(V_ID rowLeft,
 GNNLayer::GNNLayer(Graph* _graph, Handler _handle,
                    int _inputDim, int _hiddenDim,
                    int _outputDim,
-                   ActMode _actMode, AggMode _aggMode)
+                   ActMode _actMode, AggMode _aggMode,
+                   float* _inputPtr, float* _inputGradPtr)
 : graph(_graph), handle(_handle), 
   inputDim(_inputDim), hiddenDim(_hiddenDim), outputDim(_outputDim),
-  actMode(_actMode), aggMode(_aggMode)
+  actMode(_actMode), aggMode(_aggMode),
+  inputPtr(_inputPtr), inputGradPtr(_inputGradPtr)
 {
   // Create and init weights
   // denseW [_inputDim x _hiddenDim]
-  checkCUDA(cudaMalloc(&denseW, inputDim * hiddenDim * sizeof(float)));
+  checkCUDA(cudaMalloc(&denseWPtr, inputDim * hiddenDim * sizeof(float)));
+  checkCUDA(cudaMalloc(&denseWGradPtr, inputDim * hiddenDim * sizeof(float)));
   float scale = sqrt(6.0 / (inputDim + hiddenDim));
-  init_weights(denseW, inputDim * hiddenDim, scale, handle.gen);
+  init_weights(denseWPtr, inputDim * hiddenDim, scale, handle.gen);
   // neighW [_hiddenDIm x _outputDim]
-  checkCUDA(cudaMalloc(&neighW, hiddenDim * outputDim * sizeof(float)));
+  checkCUDA(cudaMalloc(&neighWPtr, hiddenDim * outputDim * sizeof(float)));
+  checkCUDA(cudaMalloc(&neighWGradPtr, hiddenDim * outputDim * sizeof(float)));
   scale = sqrt(6.0 / (hiddenDim + outputDim));
-  init_weights(neighW, hiddenDim * outputDim, scale, handle.gen);
+  init_weights(neighWPtr, hiddenDim * outputDim, scale, handle.gen);
   // selfW [_inputDim x _outputDim]
-  checkCUDA(cudaMalloc(&selfW, inputDim * outputDim * sizeof(float)));
+  checkCUDA(cudaMalloc(&selfWPtr, inputDim * outputDim * sizeof(float)));
+  checkCUDA(cudaMalloc(&selfWGradPtr, inputDim * outputDim * sizeof(float)));
   scale = sqrt(6.0 / (inputDim + outputDim));
-  init_weights(selfW, inputDim * outputDim, scale, handle.gen);
+  init_weights(selfWPtr, inputDim * outputDim, scale, handle.gen);
   // initialize tensors
   checkCUDNN(cudnnCreateActivationDescriptor(&actiDesc));
   checkCUDNN(cudnnSetActivationDescriptor(actiDesc, CUDNN_ACTIVATION_RELU,
@@ -106,6 +120,13 @@ GNNLayer::GNNLayer(Graph* _graph, Handler _handle,
                                         CUDNN_TENSOR_NCHW,
                                         CUDNN_DATA_FLOAT,
                                         graph->nv, outputDim, 1, 1));
+  // allocate hiddenPtr, aggrePtr, outputPtr
+  checkCUDA(cudaMalloc(&hiddenPtr, graph->nvExt * hiddenDim * sizeof(float)));
+  checkCUDA(cudaMalloc(&hiddenGradPtr, graph->nvExt * outputDim * sizeof(float)));
+  checkCUDA(cudaMalloc(&aggrePtr, graph->nvExt * hiddenDim * sizeof(float)));
+  checkCUDA(cudaMalloc(&aggreGradPtr, graph->nvExt * hiddenDim * sizeof(float)));
+  checkCUDA(cudaMalloc(&outputPtr, graph->nv * outputDim * sizeof(float)));
+  checkCUDA(cudaMalloc(&outputGradPtr, graph->nv * outputDim * sizeof(float)));
 }
 
 void print(const float* ptr, int num)
@@ -115,18 +136,16 @@ void print(const float* ptr, int num)
   for (int i = 0; i < num; i++)
     printf("%.4lf ", ptrZC[i]);
   printf("\n");
+  free(ptrZC);
 }
 
-void GNNLayer::forward(const float* inputPtr,
-                       float* hiddenPtr,
-                       float* aggrePtr,
-                       float* outputPtr)
+void GNNLayer::forward(void)
 {
   float alpha = 1.0f, beta = 0.0f;
   // Compute hiddenPtr
   checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_T, CUBLAS_OP_N,
                         hiddenDim, graph->nv, inputDim,
-                        &alpha, denseW, inputDim,
+                        &alpha, denseWPtr, inputDim,
                         inputPtr, inputDim,
                         &beta, hiddenPtr, hiddenDim));
   // relu over hiddenPtr
@@ -137,18 +156,19 @@ void GNNLayer::forward(const float* inputPtr,
   if (numBlks > BLOCK_SIZE_LIMIT)
     numBlks = BLOCK_SIZE_LIMIT;
   block_coop_kernel<<<numBlks, blkSize>>>(0, graph->nv - 1, hiddenDim,
-                                          graph->rowPtr, graph->colIdx, hiddenPtr, aggrePtr);
-  checkCUDA(cudaDeviceSynchronize());
+    graph->inRowPtr, graph->inColIdx, hiddenPtr, aggrePtr);
+  // TODO: add a mean operator in between
+
   // Compute outputPtr
   checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_T, CUBLAS_OP_N,
                         outputDim, graph->nv, hiddenDim,
-                        &alpha, neighW, hiddenDim,
+                        &alpha, neighWPtr, hiddenDim,
                         aggrePtr, hiddenDim,
                         &beta, outputPtr, outputDim));
   // We should add activations on top of the previous Sgemm
   checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_T, CUBLAS_OP_N,
                         outputDim, graph->nv, inputDim,
-                        &alpha, selfW, inputDim,
+                        &alpha, selfWPtr, inputDim,
                         inputPtr, inputDim,
                         &alpha, outputPtr, outputDim));
   if (actMode == ACT_MODE_RELU) {
@@ -158,12 +178,146 @@ void GNNLayer::forward(const float* inputPtr,
   } else {
     assert(false);
   }
-  //printf("hiddenPtr:\n");
-  //print(hiddenPtr, graph->nv * hiddenDim);
-  //printf("aggrePtr:\n");
-  //print(aggrePtr, graph->nv * hiddenDim);
-  //printf("outputPtr:\n");
-  //print(outputPtr, graph->nv * outputDim);
+}
+
+void GNNLayer::backward(void)
+{
+  float alpha = 1.0f, beta = 0.0f;
+  if (actMode == ACT_MODE_RELU) {
+    int n = graph->nv * outputDim;
+    reluBackward<<<GET_BLOCKS(n), CUDA_NUM_THREADS>>>(
+        outputGradPtr, outputPtr, n);
+  } else {
+    assert(false);
+  }
+  // Compute selfWGrad
+  checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_N, CUBLAS_OP_T,
+                        inputDim, outputDim, graph->nv,
+                        &alpha, inputPtr, inputDim,
+                        outputGradPtr, outputDim,
+                        &beta, selfWGradPtr, inputDim));
+  // Compute inputGradPtr
+  checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_N, CUBLAS_OP_N,
+                        inputDim, graph->nv, outputDim,
+                        &alpha, selfWPtr, inputDim,
+                        outputGradPtr, outputDim,
+                        &beta, inputGradPtr, inputDim));
+  // Compute neighWGrad
+  checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_N, CUBLAS_OP_T,
+                        hiddenDim, outputDim, graph->nv,
+                        &alpha, aggrePtr, hiddenDim,
+                        outputGradPtr, outputDim,
+                        &beta, neighWGradPtr, hiddenDim));
+  // Compute aggreGrad
+  checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_N, CUBLAS_OP_N,
+                        hiddenDim, graph->nv, outputDim,
+                        &alpha, neighWPtr, hiddenDim,
+                        outputGradPtr, outputDim,
+                        &beta, aggreGradPtr, hiddenDim));
+  // TODO: normalize aggreGradPtr
+
+  // Compute hiddenGrad
+  int blkSize = CUDA_NUM_THREADS / hiddenDim * hiddenDim;
+  int numBlks = (graph->nv * hiddenDim + blkSize - 1) / blkSize;
+  if (numBlks > BLOCK_SIZE_LIMIT)
+    numBlks = BLOCK_SIZE_LIMIT;
+  block_coop_kernel<<<numBlks, blkSize>>>(0, graph->nv - 1, hiddenDim,
+      graph->outRowPtr, graph->outColIdx, aggreGradPtr, hiddenGradPtr);
+
+  // Backprop relu
+  int n = graph->nv * hiddenDim;
+  reluBackward<<<GET_BLOCKS(n), CUDA_NUM_THREADS>>>(
+      hiddenGradPtr, hiddenPtr, n);
+
+  // Compute denseWGrad
+  checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_N, CUBLAS_OP_T,
+                        inputDim, hiddenDim, graph->nv,
+                        &alpha, inputPtr, inputDim,
+                        hiddenGradPtr, hiddenDim,
+                        &beta, denseWGradPtr, inputDim));
+  // Copute inputGrad
+  // Note: this is the second time we compute inputGrad,
+  // so we replace beta with alpha
+  checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_N, CUBLAS_OP_N,
+                        inputDim, graph->nv, hiddenDim,
+                        &alpha, denseWPtr, inputDim,
+                        hiddenGradPtr, hiddenDim,
+                        &alpha/**1.0**/,  inputGradPtr, inputDim));
+  
+}
+
+GCLayer::GCLayer(Graph* _graph, Handler _handle,
+                 int _inputDim, int _numClass,
+                 float* _inputPtr, float* _inputGradPtr)
+: graph(_graph), handle(_handle),
+  inputDim(_inputDim), numClass(_numClass),
+  inputPtr(_inputPtr), inputGradPtr(_inputGradPtr)
+{
+  // Create and init weights
+  // denseW [_inputDim x _numClass]
+  checkCUDA(cudaMalloc(&denseWPtr, inputDim * numClass * sizeof(float)));
+  checkCUDA(cudaMalloc(&denseWGradPtr, inputDim * numClass * sizeof(float)));
+  float scale = sqrt(6.0 / (inputDim + numClass));
+  init_weights(denseWPtr, inputDim * numClass, scale, handle.gen);
+  // Create aggregate and output tensors
+  checkCUDNN(cudnnCreateTensorDescriptor(&outputTensor));
+  checkCUDNN(cudnnSetTensor4dDescriptor(outputTensor, CUDNN_TENSOR_NCHW,
+                                        CUDNN_DATA_FLOAT,
+                                        graph->ng, numClass, 1, 1));
+  // Allocate aggregate and output tensors
+  checkCUDA(cudaMalloc(&aggrePtr, graph->ng * inputDim * sizeof(float)));
+  checkCUDA(cudaMalloc(&outputPtr, graph->ng * numClass * sizeof(float)));
+  checkCUDA(cudaMalloc(&aggreGradPtr, graph->ng * inputDim * sizeof(float)));
+  checkCUDA(cudaMalloc(&outputGradPtr, graph->ng * numClass * sizeof(float)));
+}
+
+void GCLayer::forward(void)
+{
+  float alpha = 1.0f, beta = 0.0f;
+  // Compute aggrePtr
+  int blkSize = CUDA_NUM_THREADS / inputDim * inputDim;
+  int numBlks = (graph->ng * inputDim + blkSize - 1) / blkSize;
+  if (numBlks > BLOCK_SIZE_LIMIT)
+    numBlks = BLOCK_SIZE_LIMIT;
+  block_coop_kernel<<<numBlks, blkSize>>>(0, graph->ng-1, inputDim,
+      graph->grInRowPtr, graph->grInColIdx, inputPtr, aggrePtr);
+  
+  // TODO: normalize graph vector by degrees
+
+  checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_T, CUBLAS_OP_N,
+                        numClass, graph->ng, inputDim,
+                        &alpha, denseWPtr, inputDim,
+                        aggrePtr, inputDim,
+                        &beta, outputPtr, numClass)); 
+  checkCUDNN(cudnnSoftmaxForward(handle.dnn, CUDNN_SOFTMAX_ACCURATE,
+                                 CUDNN_SOFTMAX_MODE_CHANNEL,
+                                 &alpha, outputTensor, aggrePtr,
+                                 &beta, outputTensor, outputPtr));
+}
+
+void GCLayer::backward(void)
+{
+  float alpha = 1.0f, beta = 0.0f;
+  // Compute denseW grad
+  checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_N, CUBLAS_OP_T,
+                        inputDim, numClass, graph->ng,
+                        &alpha, aggrePtr, inputDim,
+                        outputGradPtr, numClass,
+                        &beta, denseWGradPtr, inputDim));
+  // Compute aggreGrad
+  checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_N, CUBLAS_OP_N,
+                        inputDim, graph->ng, numClass,
+                        &alpha, denseWPtr, inputDim,
+                        outputGradPtr, numClass,
+                        &beta, aggreGradPtr, inputDim));
+  // TODO: normalize graph vector by degrees
+
+  int blkSize = CUDA_NUM_THREADS / inputDim * inputDim;
+  int numBlks = (graph->nv * inputDim + blkSize - 1) / blkSize;
+  if (numBlks > BLOCK_SIZE_LIMIT)
+    numBlks = BLOCK_SIZE_LIMIT;
+  block_coop_kernel<<<numBlks, blkSize>>>(0, graph->nv, inputDim,
+      graph->grOutRowPtr, graph->grOutColIdx, aggreGradPtr, inputGradPtr);
 }
 
 Handler::Handler(void)
