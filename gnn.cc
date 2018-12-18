@@ -75,14 +75,18 @@ int main(int argc, char **argv)
   model.set_out_graph(nv, nv, outEdges);
   model.load_node_label(nv, nodeLabelFile);
 
-  float* hidden;
-  for (int i = 0; i < 4; i++)
-    checkCUDA(cudaMalloc(&hidden, nv * HIDDEN_SIZE * sizeof(float)));
-  init_weights(hidden, nv * HIDDEN_SIZE, 0.5, handle.gen);
+  float* inputZC = (float*) malloc(nv * HIDDEN_SIZE * sizeof(float));
+  for (int i = 0; i < nv * HIDDEN_SIZE; i++)
+    inputZC[i] = (i / HIDDEN_SIZE == i % HIDDEN_SIZE) ? 0.5f : 0.0f;
+    
+  float* inputFB;
+  checkCUDA(cudaMalloc(&inputFB, nv * HIDDEN_SIZE * sizeof(float)));
+  checkCUDA(cudaMemcpy(inputFB, inputZC, nv * HIDDEN_SIZE * sizeof(float),
+                       cudaMemcpyHostToDevice));
 
   std::vector<Layer*> layers;
   for (int i = 0; i < NUM_LAYERS; i++) {
-    float* inputPtr = (i == 0) ? hidden : layers[i-1]->outputPtr;
+    float* inputPtr = (i == 0) ? inputFB : layers[i-1]->outputPtr;
     float* inputGradPtr = (i == 0) ? NULL : layers[i-1]->outputGradPtr;
     layers.push_back(new GNNLayer(&model, inputPtr, inputGradPtr,
                              HIDDEN_SIZE, HIDDEN_SIZE, HIDDEN_SIZE,

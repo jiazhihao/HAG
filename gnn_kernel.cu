@@ -207,11 +207,13 @@ void GNNLayer::backward(void)
                         outputGradPtr, outputDim,
                         &beta, selfWGradPtr, inputDim));
   // Compute inputGradPtr
-  checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_N, CUBLAS_OP_N,
-                        inputDim, nv, outputDim,
-                        &alpha, selfWPtr, inputDim,
-                        outputGradPtr, outputDim,
-                        &beta, inputGradPtr, inputDim));
+  if (inputGradPtr != NULL) {
+    checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_N, CUBLAS_OP_N,
+                          inputDim, nv, outputDim,
+                          &alpha, selfWPtr, inputDim,
+                          outputGradPtr, outputDim,
+                          &beta, inputGradPtr, inputDim));
+  }
   // Compute neighWGrad
   checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_N, CUBLAS_OP_T,
                         hiddenDim, outputDim, nv,
@@ -246,14 +248,15 @@ void GNNLayer::backward(void)
                         hiddenGradPtr, hiddenDim,
                         &beta, denseWGradPtr, inputDim));
   // Copute inputGrad
-  // Note: this is the second time we compute inputGrad,
-  // so we replace beta with alpha
-  checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_N, CUBLAS_OP_N,
-                        inputDim, nv, hiddenDim,
-                        &alpha, denseWPtr, inputDim,
-                        hiddenGradPtr, hiddenDim,
-                        &alpha/**1.0**/,  inputGradPtr, inputDim));
-  
+  if (inputGradPtr != NULL) {
+    // Note: this is the second time we compute inputGrad,
+    // so we replace beta with alpha
+    checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_N, CUBLAS_OP_N,
+                          inputDim, nv, hiddenDim,
+                          &alpha, denseWPtr, inputDim,
+                          hiddenGradPtr, hiddenDim,
+                          &alpha/**1.0**/,  inputGradPtr, inputDim));
+  } 
 }
 
 GCLayer::GCLayer(GNNModel* _model,
