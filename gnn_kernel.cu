@@ -80,15 +80,16 @@ void block_coop_kernel(V_ID rowLeft,
   }
 }
 
-GNNLayer::GNNLayer(GNNModel* _model, Handler _handle,
+GNNLayer::GNNLayer(GNNModel* _model,
                    float* _inputPtr, float* _inputGradPtr,
                    int _inputDim, int _hiddenDim,
                    int _outputDim,
                    ActMode _actMode, AggMode _aggMode)
-: Layer(_model, _handle, _inputPtr, _inputGradPtr),
+: Layer(_model, _inputPtr, _inputGradPtr),
   inputDim(_inputDim), hiddenDim(_hiddenDim), outputDim(_outputDim),
   actMode(_actMode), aggMode(_aggMode)
 {
+  Handler handle = model->handle;
   int nvSrc = model->inGraph.nvSrc;
   int nvDst = model->inGraph.nvDst;
   // Create and init weights
@@ -142,6 +143,7 @@ void print(const float* ptr, int num)
 
 void GNNLayer::forward(void)
 {
+  Handler handle = model->handle;
   float alpha = 1.0f, beta = 0.0f;
   Graph graph = model->inGraph;
   assert(graph.nvSrc == graph.nvDst);
@@ -186,6 +188,7 @@ void GNNLayer::forward(void)
 
 void GNNLayer::backward(void)
 {
+  Handler handle = model->handle;
   float alpha = 1.0f, beta = 0.0f;
   Graph graph = model->outGraph;
   assert(graph.nvSrc == graph.nvDst);
@@ -253,12 +256,13 @@ void GNNLayer::backward(void)
   
 }
 
-GCLayer::GCLayer(GNNModel* _model, Handler _handle,
+GCLayer::GCLayer(GNNModel* _model,
                  float* _inputPtr, float* _inputGradPtr,
                  int _inputDim, int _numClass)
-: Layer(_model, _handle, _inputPtr, _inputGradPtr),
+: Layer(_model, _inputPtr, _inputGradPtr),
   inputDim(_inputDim), numClass(_numClass)
 {
+  Handler handle = model->handle;
   int ng = model->hyInGraph.nvDst;
   // Create and init weights
   // denseW [_inputDim x _numClass]
@@ -266,11 +270,6 @@ GCLayer::GCLayer(GNNModel* _model, Handler _handle,
   checkCUDA(cudaMalloc(&denseWGradPtr, inputDim * numClass * sizeof(float)));
   float scale = sqrt(6.0 / (inputDim + numClass));
   init_weights(denseWPtr, inputDim * numClass, scale, handle.gen);
-  // Create aggregate and output tensors
-  checkCUDNN(cudnnCreateTensorDescriptor(&outputTensor));
-  checkCUDNN(cudnnSetTensor4dDescriptor(outputTensor, CUDNN_TENSOR_NCHW,
-                                        CUDNN_DATA_FLOAT,
-                                        ng, numClass, 1, 1));
   // Allocate aggregate and output tensors
   checkCUDA(cudaMalloc(&aggrePtr, ng * inputDim * sizeof(float)));
   checkCUDA(cudaMalloc(&outputPtr, ng * numClass * sizeof(float)));
@@ -280,6 +279,7 @@ GCLayer::GCLayer(GNNModel* _model, Handler _handle,
 
 void GCLayer::forward(void)
 {
+  Handler handle = model->handle;
   float alpha = 1.0f, beta = 0.0f;
   Graph graph = model->hyInGraph;
   // Compute aggrePtr
@@ -297,14 +297,11 @@ void GCLayer::forward(void)
                         &alpha, denseWPtr, inputDim,
                         aggrePtr, inputDim,
                         &beta, outputPtr, numClass)); 
-  checkCUDNN(cudnnSoftmaxForward(handle.dnn, CUDNN_SOFTMAX_ACCURATE,
-                                 CUDNN_SOFTMAX_MODE_CHANNEL,
-                                 &alpha, outputTensor, aggrePtr,
-                                 &beta, outputTensor, outputPtr));
 }
 
 void GCLayer::backward(void)
 {
+  Handler handle = model->handle;
   float alpha = 1.0f, beta = 0.0f;
   Graph graph = model->hyOutGraph;
   // Compute denseW grad
@@ -327,6 +324,102 @@ void GCLayer::backward(void)
     numBlks = BLOCK_SIZE_LIMIT;
   block_coop_kernel<<<numBlks, blkSize>>>(0, graph.nvSrc, inputDim,
       graph.rowPtr, graph.colIdx, aggreGradPtr, inputGradPtr);
+}
+
+NCLayer::NCLayer(GNNModel* _model,
+                 float* _inputPtr, float* _inputGradPtr,
+                 int _inputDim, int _numClass)
+: Layer(_model, _inputPtr, _inputGradPtr),
+  inputDim(_inputDim), numClass(_numClass)
+{
+  Handler handle = model->handle;
+  int nvDst = model->inGraph.nvDst;
+  // Create and init weights
+  // denseW [_inputDim x _numClass]
+  checkCUDA(cudaMalloc(&denseWPtr, inputDim * numClass * sizeof(float)));
+  checkCUDA(cudaMalloc(&denseWGradPtr, inputDim * numClass * sizeof(float)));
+  float scale = sqrt(6.0 / (inputDim + numClass));
+  init_weights(denseWPtr, inputDim * numClass, scale, handle.gen);
+  // Allocate output tensors
+  checkCUDA(cudaMalloc(&outputPtr, nvDst * numClass * sizeof(float)));
+  checkCUDA(cudaMalloc(&outputGradPtr, nvDst * numClass * sizeof(float)));
+}
+
+void NCLayer::forward(void)
+{
+  Handler handle = model->handle;
+  float alpha = 1.0f, beta = 0.0f;
+  int nv = model->inGraph.nvDst;
+  checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_T, CUBLAS_OP_N,
+                        numClass, nv, inputDim,
+                        &alpha, denseWPtr, inputDim,
+                        inputPtr, inputDim,
+                        &beta, outputPtr, numClass));
+}
+
+void NCLayer::backward(void)
+{
+  Handler handle = model->handle;
+  float alpha = 1.0f, beta = 0.0f;
+  int nv = model->inGraph.nvDst;
+  // Compute denseW grad
+  checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_N, CUBLAS_OP_T,
+                        inputDim, numClass, nv,
+                        &alpha, inputPtr, inputDim,
+                        outputGradPtr, numClass,
+                        &beta, denseWGradPtr, inputDim));
+  // Compute inputGrad
+  checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_N, CUBLAS_OP_N,
+                        inputDim, nv, numClass,
+                        &alpha, denseWPtr, inputDim,
+                        outputGradPtr, numClass,
+                        &beta, inputGradPtr, inputDim));
+}
+
+SMLayer::SMLayer(GNNModel* _model,
+                 float* _inputPtr, float* _inputGradPtr,
+                 int _numSamples, int _numClass)
+: Layer(_model, _inputPtr, _inputGradPtr),
+  numSamples(_numSamples), numClass(_numClass)
+{
+  // Create output tensors
+  checkCUDNN(cudnnCreateTensorDescriptor(&outputTensor));
+  checkCUDNN(cudnnSetTensor4dDescriptor(outputTensor, CUDNN_TENSOR_NCHW,
+                                        CUDNN_DATA_FLOAT,
+                                        numSamples, numClass, 1, 1));
+  // Allocate output tensors
+  checkCUDA(cudaMalloc(&outputPtr, numSamples * numClass * sizeof(float)));
+}
+
+void SMLayer::forward(void)
+{
+  Handler handle = model->handle;
+  float alpha = 1.0f, beta = 0.0f;
+  
+  checkCUDNN(cudnnSoftmaxForward(handle.dnn, CUDNN_SOFTMAX_ACCURATE,
+                                 CUDNN_SOFTMAX_MODE_CHANNEL,
+                                 &alpha, outputTensor, inputPtr,
+                                 &beta, outputTensor, outputPtr));
+}
+
+__global__
+void softmax_backward(float* inputGrad, const int *label,
+                      int numClass, int numSamples)
+{
+  CUDA_KERNEL_LOOP(i, numSamples)
+  {
+    int labelIdx = label[i];
+    inputGrad[i * numSamples + labelIdx] -= 1.0f;
+  }
+}
+
+void SMLayer::backward(void)
+{
+  checkCUDA(cudaMemcpyAsync(inputGradPtr, outputPtr,
+                            numSamples * numClass * sizeof(float),
+                            cudaMemcpyDeviceToDevice));
+  softmax_backward<<<GET_BLOCKS(numSamples), CUDA_NUM_THREADS>>>(
+      inputGradPtr, model->labels, numClass, numSamples);
 }
 
 Handler::Handler(void)

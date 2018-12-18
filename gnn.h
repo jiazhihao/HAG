@@ -78,7 +78,6 @@ typedef int V_ID;
 typedef int E_ID;
 #define HIDDEN_SIZE 64
 #define NUM_LAYERS 2
-#define NUM_CLASS 4
 
 struct NodeStruct {
   E_ID index;
@@ -124,21 +123,22 @@ public:
                           std::map<V_ID, std::set<V_ID>* >& edgeList);
   void set_hyper_out_graph(int nvSrc, int nvDst,
                            std::map<V_ID, std::set<V_ID>* >& edgeList);
+  void load_node_label(int nv, std::string filename);
 public:
   Handler handle;
   Graph inGraph, outGraph, hyInGraph, hyOutGraph;
+  int* labels;
+  int numClass;
 };
 
 class Layer {
 public:
-  Layer(GNNModel* model, Handler handle,
-        float* inputPtr, float *inputGradPtr);
+  Layer(GNNModel* model, float* inputPtr, float *inputGradPtr);
   virtual void forward(void) = 0;
   virtual void backward(void) = 0;
   float *outputPtr, *outputGradPtr;
 protected:
   GNNModel* model;
-  Handler handle;
   float *inputPtr, *inputGradPtr;
 };
 
@@ -147,7 +147,7 @@ protected:
 // outputPtr [graph->nv x outputDim]
 class GNNLayer : public Layer {
 public:
-  GNNLayer(GNNModel* model, Handler handle,
+  GNNLayer(GNNModel* model,
            float* inputPtr, float* inputGradPtr,
            int inputDim, int hiddenDim, int outputDim,
            ActMode act, AggMode agg);
@@ -171,7 +171,7 @@ private:
 // outputPtr [graph->ng x numClass]
 class GCLayer : public Layer {
 public:
-  GCLayer(GNNModel* graph, Handler handle,
+  GCLayer(GNNModel* model,
           float *inputPtr, float* inputGradPtr,
           int inputDim, int numClass);
   void forward(void);
@@ -179,7 +179,31 @@ public:
 private:
   int inputDim, numClass;
   float *denseWPtr, *denseWGradPtr;
-  cudnnTensorDescriptor_t outputTensor;
   float *aggrePtr, *aggreGradPtr;
+};
+
+// outputPtr [graph->nv x numClass]
+class NCLayer : public Layer {
+public:
+  NCLayer(GNNModel* model,
+          float *inputPtr, float *inputGradPtr,
+          int inputDim, int numClass);
+  void forward(void);
+  void backward(void);
+private:
+  int inputDim, numClass;
+  float *denseWPtr, *denseWGradPtr;
+};
+
+class SMLayer : public Layer {
+public:
+  SMLayer(GNNModel* model,
+          float *inputPtr, float *inputGradPtr,
+          int numSamples, int numClass);
+  void forward(void);
+  void backward(void);
+private:
+  int numSamples, numClass;
+  cudnnTensorDescriptor_t outputTensor; 
 };
 #endif

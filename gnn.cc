@@ -16,18 +16,47 @@
 #include "gnn.h"
 #include "gnn_kernel.h"
 
-int main()
+void parse_input_args(char **argv, int argc,
+                      std::string &graphFile, std::string &hyGraphFile,
+                      std::string &nodeLabelFile, std::string &graphLabelFile)
 {
+  for (int i = 1; i < argc; i++)
+  {
+    if (!strcmp(argv[i], "-g"))
+    {
+      graphFile = std::string(argv[++i]);
+      continue;
+    }
+    if (!strcmp(argv[i], "-hg"))
+    {
+      hyGraphFile = std::string(argv[++i]);
+      continue;
+    }
+    if (!strcmp(argv[i], "-nl"))
+    {
+      nodeLabelFile = std::string(argv[++i]);
+      continue;
+    }
+  }
+}
+
+int main(int argc, char **argv)
+{
+  std::string graphFile, hyGraphFile, nodeLabelFile, graphLabelFile;
+  parse_input_args(argv, argc, graphFile, hyGraphFile,
+                   nodeLabelFile, graphLabelFile);
   Handler handle;
   //FILE* file = fopen("BZR_MD/BZR_MD_A.txt", "r");
-  FILE* file = fopen("input.txt", "r");
+  FILE* file = fopen(graphFile.c_str(), "r");
   V_ID u, v;
   V_ID nv = 0;
-  E_ID ne = 0;
   std::map<V_ID, std::set<V_ID>* > inEdges, outEdges;
 
   while (fscanf(file, "%d, %d", &u, &v) != EOF) {
-    ne ++;
+    // shift node indices by 1 to make them 0-indexed
+    u --;
+    // shift node indices by 1 to make them 0-indexed
+    v --;
     if (std::max(u, v) >= nv)
       nv = std::max(u, v) + 1;
     // add inEdge
@@ -40,54 +69,41 @@ int main()
     outEdges[u]->insert(v);
   }
   fclose(file);
-  printf("nv(%d) ne (%d)\n", nv, ne);
+
   GNNModel model(handle);
   model.set_in_graph(nv, nv, inEdges);
   model.set_out_graph(nv, nv, outEdges);
+  model.load_node_label(nv, nodeLabelFile);
 
-  NodeStruct *rowPtrZC, *rowPtrFB;
-  EdgeStruct *colIdxZC, *colIdxFB;
-  rowPtrZC = (NodeStruct*) malloc(nv * sizeof(NodeStruct));
-  colIdxZC = (EdgeStruct*) malloc(ne * sizeof(EdgeStruct));
-  E_ID count = 0;
-  for (v = 0; v < nv; v++) {
-    if (inEdges.find(v) != inEdges.end()) {
-      std::set<V_ID>::const_iterator it;
-      for (it = inEdges[v]->begin(); it != inEdges[v]->end(); it++) {
-        colIdxZC[count].src = *it;
-        colIdxZC[count].dst = v;
-        count ++;
-      }
-    }
-    rowPtrZC[v].index = count;
-  }
-  checkCUDA(cudaMalloc(&rowPtrFB, nv * sizeof(NodeStruct)));
-  checkCUDA(cudaMalloc(&colIdxFB, ne * sizeof(EdgeStruct)));
-  checkCUDA(cudaMemcpy(rowPtrFB, rowPtrZC, nv * sizeof(NodeStruct),
-                       cudaMemcpyHostToDevice));
-  checkCUDA(cudaMemcpy(colIdxFB, colIdxZC, ne * sizeof(EdgeStruct),
-                       cudaMemcpyHostToDevice));
-  float* hidden[4];
+  float* hidden;
   for (int i = 0; i < 4; i++)
-    checkCUDA(cudaMalloc(&hidden[i], nv * HIDDEN_SIZE * sizeof(float)));
-  init_weights(hidden[0], nv * HIDDEN_SIZE, 0.5, handle.gen);
-  int ng = nv;
+    checkCUDA(cudaMalloc(&hidden, nv * HIDDEN_SIZE * sizeof(float)));
+  init_weights(hidden, nv * HIDDEN_SIZE, 0.5, handle.gen);
 
   std::vector<Layer*> layers;
   for (int i = 0; i < NUM_LAYERS; i++) {
-    float* inputPtr = (i == 0) ? hidden[0] : layers[i-1]->outputPtr;
+    float* inputPtr = (i == 0) ? hidden : layers[i-1]->outputPtr;
     float* inputGradPtr = (i == 0) ? NULL : layers[i-1]->outputGradPtr;
-    layers.push_back(new GNNLayer(&model, handle, inputPtr, inputGradPtr,
+    layers.push_back(new GNNLayer(&model, inputPtr, inputGradPtr,
                              HIDDEN_SIZE, HIDDEN_SIZE, HIDDEN_SIZE,
                              ACT_MODE_RELU, AGG_MODE_MEAN_POOLING));
   }
-  GCLayer* gcLayer = new GCLayer(&model, handle,
-                                 layers[layers.size()-1]->outputPtr,
-                                 layers[layers.size()-1]->outputGradPtr,
-                                 HIDDEN_SIZE, NUM_CLASS);
+  layers.push_back(new NCLayer(&model, layers[layers.size() - 1]->outputPtr,
+                               layers[layers.size() - 1]->outputGradPtr,
+                               HIDDEN_SIZE, model.numClass));
+  layers.push_back(new SMLayer(&model, layers[layers.size() - 1]->outputPtr,
+                               layers[layers.size() - 1]->outputGradPtr,
+                               nv, model.numClass));
+  //GCLayer* gcLayer = new GCLayer(&model, handle,
+  //                               layers[layers.size()-1]->outputPtr,
+  //                               layers[layers.size()-1]->outputGradPtr,
+  //                               HIDDEN_SIZE, NUM_CLASS);
 
   for (int i = 0; i < layers.size(); i++) {
     layers[i]->forward();
+  }
+  for (int i = layers.size() - 1; i >= 0; i--) {
+    layers[i]->backward();
   }
 }
 
@@ -163,8 +179,26 @@ void GNNModel::set_hyper_out_graph(int nvSrc, int nvDst,
          hyOutGraph.nvSrc, hyOutGraph.nvDst, hyOutGraph.ne);
 }
 
-Layer::Layer(GNNModel* _model, Handler _handle,
-             float* _inputPtr, float* _inputGradPtr)
-: model(_model), handle(_handle),
-  inputPtr(_inputPtr), inputGradPtr(_inputGradPtr)
+void GNNModel::load_node_label(int nv, std::string filename)
+{
+  FILE* file = fopen(filename.c_str(), "r");
+  int* labelsZC = (int*) malloc(nv * sizeof(int));
+  V_ID cnt = 0;
+  int u;
+  numClass = 0;
+  while (fscanf(file, "%d", &u) != EOF) {
+    labelsZC[cnt ++] = u;
+    if (u >= numClass) numClass = u + 1;
+  }
+  printf("numClass = %d\n", numClass);
+  assert(cnt == nv);
+  checkCUDA(cudaMalloc(&labels, nv * sizeof(int)));
+  checkCUDA(cudaMemcpy(labels, labelsZC, nv * sizeof(int),
+                       cudaMemcpyHostToDevice));
+  free(labelsZC);
+  fclose(file);
+}
+
+Layer::Layer(GNNModel* _model, float* _inputPtr, float* _inputGradPtr)
+: model(_model), inputPtr(_inputPtr), inputGradPtr(_inputGradPtr)
 {}
