@@ -103,11 +103,27 @@ struct Handler {
 };
 
 struct Graph {
-  Graph(void): nvSrc(0), nvDst(0), ne(0), rowPtr(NULL), colIdx(NULL) {};
+  Graph(void): nvSrc(0), nvDst(0), ne(0), rowPtr(NULL), colIdx(NULL), inDeg(NULL) {};
   V_ID nvSrc, nvDst;
   E_ID ne;
   NodeStruct *rowPtr;
   EdgeStruct *colIdx;
+  V_ID *inDeg;
+};
+
+struct AdamOpt {
+  AdamOpt(void): alpha(0.001), beta1(0.9), beta2(0.999), epsilon(1e-5), beta1_t(1), beta2_t(1) {}
+  void next_epoch(void);
+  double alpha, beta1, beta2, epsilon;
+  double alpha_t, beta1_t, beta2_t;
+};
+
+struct AdamParameter {
+  AdamParameter(Handler handle, int inputDim, int outputDim);
+  void update(AdamOpt);
+public:
+  int count;
+  float *W, *WGrad, *M, *V;
 };
 
 class GNNModel {
@@ -136,6 +152,7 @@ public:
   Layer(GNNModel* model, float* inputPtr, float *inputGradPtr);
   virtual void forward(void) = 0;
   virtual void backward(void) = 0;
+  virtual void update(AdamOpt adam) = 0;
   float *outputPtr, *outputGradPtr;
 protected:
   GNNModel* model;
@@ -153,11 +170,10 @@ public:
            ActMode act, AggMode agg);
   void forward(void);
   void backward(void);
+  void update(AdamOpt adam);
 private:
   int inputDim, hiddenDim, outputDim;
-  float *denseWPtr, *denseWGradPtr;
-  float *neighWPtr, *neighWGradPtr;
-  float *selfWPtr, *selfWGradPtr;
+  AdamParameter *dense, *neigh, *self;
   ActMode actMode;
   AggMode aggMode;
   cudnnActivationDescriptor_t actiDesc;
@@ -165,7 +181,6 @@ private:
   float *hiddenPtr, *hiddenGradPtr;
   float *aggrePtr, *aggreGradPtr;
 };
-
 
 // aggrePtr [graph->ng x inputDim]
 // outputPtr [graph->ng x numClass]
@@ -176,9 +191,10 @@ public:
           int inputDim, int numClass);
   void forward(void);
   void backward(void);
+  void update(AdamOpt adam);
 private:
   int inputDim, numClass;
-  float *denseWPtr, *denseWGradPtr;
+  AdamParameter *dense;
   float *aggrePtr, *aggreGradPtr;
 };
 
@@ -190,8 +206,10 @@ public:
           int inputDim, int numClass);
   void forward(void);
   void backward(void);
+  void update(AdamOpt adam);
 private:
   int inputDim, numClass;
+  AdamParameter *dense;
   float *denseWPtr, *denseWGradPtr;
 };
 
@@ -202,6 +220,7 @@ public:
           int numSamples, int numClass);
   void forward(void);
   void backward(void);
+  void update(AdamOpt adam);
 private:
   int numSamples, numClass;
   cudnnTensorDescriptor_t outputTensor; 

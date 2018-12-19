@@ -18,7 +18,8 @@
 
 void parse_input_args(char **argv, int argc,
                       std::string &graphFile, std::string &hyGraphFile,
-                      std::string &nodeLabelFile, std::string &graphLabelFile)
+                      std::string &nodeLabelFile, std::string &graphLabelFile,
+                      double &learningRate, int &epochs)
 {
   for (int i = 1; i < argc; i++)
   {
@@ -37,14 +38,27 @@ void parse_input_args(char **argv, int argc,
       nodeLabelFile = std::string(argv[++i]);
       continue;
     }
+    if (!strcmp(argv[i], "-lr"))
+    {
+      learningRate = std::atof(argv[++i]);
+      continue;
+    }
+    if (!strcmp(argv[i], "-e"))
+    {
+      epochs = std::atoi(argv[++i]);
+      continue;
+    }
   }
 }
 
 int main(int argc, char **argv)
 {
   std::string graphFile, hyGraphFile, nodeLabelFile, graphLabelFile;
+  double learningRate = 0.001f;
+  int epochs = 100;
   parse_input_args(argv, argc, graphFile, hyGraphFile,
-                   nodeLabelFile, graphLabelFile);
+                   nodeLabelFile, graphLabelFile,
+                   learningRate, epochs);
   Handler handle;
   //FILE* file = fopen("BZR_MD/BZR_MD_A.txt", "r");
   FILE* file = fopen(graphFile.c_str(), "r");
@@ -70,14 +84,20 @@ int main(int argc, char **argv)
   }
   fclose(file);
 
+  AdamOpt adam;
+  adam.alpha = learningRate;
   GNNModel model(handle);
   model.set_in_graph(nv, nv, inEdges);
   model.set_out_graph(nv, nv, outEdges);
   model.load_node_label(nv, nodeLabelFile);
 
   float* inputZC = (float*) malloc(nv * HIDDEN_SIZE * sizeof(float));
-  for (int i = 0; i < nv * HIDDEN_SIZE; i++)
-    inputZC[i] = (i / HIDDEN_SIZE == i % HIDDEN_SIZE) ? 0.5f : 0.0f;
+  memset(inputZC, 0, nv * HIDDEN_SIZE * sizeof(float));
+  for (v = 0; v < nv; v++)
+    if (inEdges.find(v) != inEdges.end())
+      inputZC[v * HIDDEN_SIZE + inEdges[v]->size() % HIDDEN_SIZE] = 1.0f;
+    else
+      inputZC[v * HIDDEN_SIZE] = 1.0f;
     
   float* inputFB;
   checkCUDA(cudaMalloc(&inputFB, nv * HIDDEN_SIZE * sizeof(float)));
@@ -92,22 +112,23 @@ int main(int argc, char **argv)
                              HIDDEN_SIZE, HIDDEN_SIZE, HIDDEN_SIZE,
                              ACT_MODE_RELU, AGG_MODE_MEAN_POOLING));
   }
+  //layers.push_back(new NCLayer(&model, inputFB, NULL, HIDDEN_SIZE, model.numClass));
   layers.push_back(new NCLayer(&model, layers[layers.size() - 1]->outputPtr,
                                layers[layers.size() - 1]->outputGradPtr,
                                HIDDEN_SIZE, model.numClass));
   layers.push_back(new SMLayer(&model, layers[layers.size() - 1]->outputPtr,
                                layers[layers.size() - 1]->outputGradPtr,
                                nv, model.numClass));
-  //GCLayer* gcLayer = new GCLayer(&model, handle,
-  //                               layers[layers.size()-1]->outputPtr,
-  //                               layers[layers.size()-1]->outputGradPtr,
-  //                               HIDDEN_SIZE, NUM_CLASS);
 
-  for (int i = 0; i < layers.size(); i++) {
-    layers[i]->forward();
-  }
-  for (int i = layers.size() - 1; i >= 0; i--) {
-    layers[i]->backward();
+  for (int iter = 0; iter < epochs; iter ++) {
+    adam.next_epoch();
+    for (int i = 0; i < layers.size(); i++) {
+      layers[i]->forward();
+    }
+    for (int i = layers.size() - 1; i >= 0; i--) {
+      layers[i]->backward();
+      layers[i]->update(adam);
+    }
   }
 }
 
@@ -125,30 +146,40 @@ void GNNModel::set_graph(Graph& graph, int nvSrc, int nvDst,
       graph.ne += inEdges[v]->size();
   NodeStruct *rowPtrZC, *rowPtrFB;
   EdgeStruct *colIdxZC, *colIdxFB;
+  V_ID *inDegZC, *inDegFB;
   rowPtrZC = (NodeStruct*) malloc(graph.nvDst * sizeof(NodeStruct));
   colIdxZC = (EdgeStruct*) malloc(graph.ne * sizeof(EdgeStruct));
+  inDegZC = (V_ID*) malloc(graph.nvDst * sizeof(V_ID));
   E_ID count = 0;
   for (int v = 0; v < nvDst; v++) {
     if (inEdges.find(v) != inEdges.end()) {
+      inDegZC[v] = inEdges[v]->size();
       std::set<V_ID>::const_iterator it;
       for (it = inEdges[v]->begin(); it != inEdges[v]->end(); it++) {
         colIdxZC[count].src = *it;
         colIdxZC[count].dst = v;
         count ++;
       }
+    } else {
+      inDegZC[v] = 0;
     }
     rowPtrZC[v].index = count;
   }
   checkCUDA(cudaMalloc(&rowPtrFB, graph.nvDst * sizeof(NodeStruct)));
   checkCUDA(cudaMalloc(&colIdxFB, graph.ne * sizeof(EdgeStruct)));
+  checkCUDA(cudaMalloc(&inDegFB, graph.nvDst * sizeof(V_ID)));
   checkCUDA(cudaMemcpy(rowPtrFB, rowPtrZC, graph.nvDst * sizeof(NodeStruct),
                        cudaMemcpyHostToDevice));
   checkCUDA(cudaMemcpy(colIdxFB, colIdxZC, graph.ne * sizeof(EdgeStruct),
                        cudaMemcpyHostToDevice));
+  checkCUDA(cudaMemcpy(inDegFB, inDegZC, graph.nvDst * sizeof(V_ID),
+                       cudaMemcpyHostToDevice));
   free(rowPtrZC);
   free(colIdxZC);
+  free(inDegZC);
   graph.rowPtr = rowPtrFB;
   graph.colIdx = colIdxFB;
+  graph.inDeg = inDegFB;
 }
 
 void GNNModel::set_in_graph(int nvSrc, int nvDst,
@@ -206,3 +237,10 @@ void GNNModel::load_node_label(int nv, std::string filename)
 Layer::Layer(GNNModel* _model, float* _inputPtr, float* _inputGradPtr)
 : model(_model), inputPtr(_inputPtr), inputGradPtr(_inputGradPtr)
 {}
+
+void AdamOpt::next_epoch(void)
+{
+  beta1_t *= beta1;
+  beta2_t *= beta2;
+  alpha_t = alpha * sqrt(1 - beta2_t) / (1 - beta1_t);
+}
