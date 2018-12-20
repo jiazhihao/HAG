@@ -103,12 +103,15 @@ struct Handler {
 };
 
 struct Graph {
-  Graph(void): nvSrc(0), nvDst(0), ne(0), rowPtr(NULL), colIdx(NULL), inDeg(NULL) {};
-  V_ID nvSrc, nvDst;
+  Graph(void): nvSrc(0), nvNewSrc(0), nvDst(0), ne(0),
+               inRowPtr(NULL), inColIdx(NULL), inDeg(NULL),
+               outRowPtr(NULL), outColIdx(NULL) {};
+  V_ID nvSrc, nvNewSrc, nvDst;
   E_ID ne;
-  NodeStruct *rowPtr;
-  EdgeStruct *colIdx;
+  NodeStruct *inRowPtr, *outRowPtr;
+  EdgeStruct *inColIdx, *outColIdx;
   V_ID *inDeg;
+  std::vector<std::pair<V_ID, V_ID> > ranges;
 };
 
 struct AdamOpt {
@@ -129,20 +132,18 @@ public:
 class GNNModel {
 public:
   GNNModel(Handler handle);
-  void set_graph(Graph& graph, int nvSrc, int nvDst,
-                 std::map<V_ID, std::set<V_ID>* >& inEdges);
-  void set_in_graph(int nvSrc, int nvDst,
-                    std::map<V_ID, std::set<V_ID>* >& edgeList);
-  void set_out_graph(int nvSrc, int nvDst,
-                     std::map<V_ID, std::set<V_ID>* >& edgeList);
-  void set_hyper_in_graph(int nvSrc, int nvDst,
+  void set_graph(Graph& graph, V_ID nvSrc, V_ID nvNewSrc, V_ID nvDst,
+                 std::map<V_ID, std::set<V_ID>* >& inEdges,
+                 std::vector<std::pair<V_ID, V_ID> >& ranges);
+  void set_dep_graph(V_ID nvSrc, V_ID nvNewSrc, V_ID nvDst,
+                    std::map<V_ID, std::set<V_ID>* >& edgeList,
+                    std::vector<std::pair<V_ID, V_ID> >& ranges);
+  void set_hyper_graph(int nvSrc, int nvDst,
                           std::map<V_ID, std::set<V_ID>* >& edgeList);
-  void set_hyper_out_graph(int nvSrc, int nvDst,
-                           std::map<V_ID, std::set<V_ID>* >& edgeList);
   void load_node_label(int nv, std::string filename);
 public:
   Handler handle;
-  Graph inGraph, outGraph, hyInGraph, hyOutGraph;
+  Graph depGraph, hyGraph;
   int* labels;
   int numClass;
 };
@@ -225,4 +226,10 @@ private:
   int numSamples, numClass;
   cudnnTensorDescriptor_t outputTensor; 
 };
+
+void transfer_graph(std::map<V_ID, std::set<V_ID>*>& orgList,
+                    std::map<V_ID, std::set<V_ID>*>& optList,
+                    std::vector<std::pair<V_ID, V_ID> >& ranges,
+                    V_ID nv, V_ID maxDepth, V_ID width, V_ID& newNv);
+
 #endif

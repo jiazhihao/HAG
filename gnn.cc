@@ -56,6 +56,8 @@ int main(int argc, char **argv)
   std::string graphFile, hyGraphFile, nodeLabelFile, graphLabelFile;
   double learningRate = 0.001f;
   int epochs = 100;
+  V_ID maxDepth = 6;
+  V_ID maxWidth = 10000;
   parse_input_args(argv, argc, graphFile, hyGraphFile,
                    nodeLabelFile, graphLabelFile,
                    learningRate, epochs);
@@ -64,7 +66,7 @@ int main(int argc, char **argv)
   FILE* file = fopen(graphFile.c_str(), "r");
   V_ID u, v;
   V_ID nv = 0;
-  std::map<V_ID, std::set<V_ID>* > inEdges, outEdges;
+  std::map<V_ID, std::set<V_ID>* > inEdges;
 
   while (fscanf(file, "%d, %d", &u, &v) != EOF) {
     // shift node indices by 1 to make them 0-indexed
@@ -77,20 +79,9 @@ int main(int argc, char **argv)
     if (inEdges.find(v) == inEdges.end())
       inEdges[v] = new std::set<V_ID>();
     inEdges[v]->insert(u);
-    // add outEdge
-    if (outEdges.find(u) == outEdges.end())
-      outEdges[u] = new std::set<V_ID>();
-    outEdges[u]->insert(v);
   }
   fclose(file);
-
-  AdamOpt adam;
-  adam.alpha = learningRate;
-  GNNModel model(handle);
-  model.set_in_graph(nv, nv, inEdges);
-  model.set_out_graph(nv, nv, outEdges);
-  model.load_node_label(nv, nodeLabelFile);
-
+ 
   float* inputZC = (float*) malloc(nv * HIDDEN_SIZE * sizeof(float));
   memset(inputZC, 0, nv * HIDDEN_SIZE * sizeof(float));
   for (v = 0; v < nv; v++)
@@ -103,6 +94,22 @@ int main(int argc, char **argv)
   checkCUDA(cudaMalloc(&inputFB, nv * HIDDEN_SIZE * sizeof(float)));
   checkCUDA(cudaMemcpy(inputFB, inputZC, nv * HIDDEN_SIZE * sizeof(float),
                        cudaMemcpyHostToDevice));
+
+  // Optimize Computation Graph
+  std::map<V_ID, std::set<V_ID>*> optInEdges;
+  std::vector<std::pair<V_ID, V_ID> > optRanges;
+  V_ID newNv;
+  transfer_graph(inEdges, optInEdges, optRanges,
+                 nv, maxDepth, maxWidth, newNv);
+  GNNModel model(handle);
+  model.set_dep_graph(nv, newNv, nv, optInEdges, optRanges);
+  //std::vector<std::pair<V_ID, V_ID> > ranges;
+  //model.set_dep_graph(nv, nv, nv, inEdges, ranges);
+  model.load_node_label(nv, nodeLabelFile);
+
+  // Init adam optimizer
+  AdamOpt adam;
+  adam.alpha = learningRate;
 
   std::vector<Layer*> layers;
   for (int i = 0; i < NUM_LAYERS; i++) {
@@ -135,83 +142,120 @@ int main(int argc, char **argv)
 GNNModel::GNNModel(Handler _handle)
 : handle(_handle) {}
 
-void GNNModel::set_graph(Graph& graph, int nvSrc, int nvDst,
-                         std::map<V_ID, std::set<V_ID>* >& inEdges)
+void GNNModel::set_graph(Graph& graph, V_ID nvSrc, V_ID nvNewSrc, V_ID nvDst,
+                         std::map<V_ID, std::set<V_ID>* >& inEdges,
+                         std::vector<std::pair<V_ID, V_ID> >& ranges)
 {
   graph.nvSrc = nvSrc;
+  graph.nvNewSrc = nvNewSrc;
   graph.nvDst = nvDst;
   graph.ne = 0;
-  for (int v = 0; v < nvDst; v++)
+  graph.ranges = ranges;
+  std::map<V_ID, std::set<V_ID>* > outEdges;
+  for (V_ID v = 0; v < nvNewSrc; v++)
     if (inEdges.find(v) != inEdges.end())
       graph.ne += inEdges[v]->size();
-  NodeStruct *rowPtrZC, *rowPtrFB;
-  EdgeStruct *colIdxZC, *colIdxFB;
+  NodeStruct *rowPtrZC, *inRowPtrFB, *outRowPtrFB;
+  EdgeStruct *colIdxZC, *inColIdxFB, *outColIdxFB;
   V_ID *inDegZC, *inDegFB;
-  rowPtrZC = (NodeStruct*) malloc(graph.nvDst * sizeof(NodeStruct));
+  rowPtrZC = (NodeStruct*) malloc(graph.nvNewSrc * sizeof(NodeStruct));
   colIdxZC = (EdgeStruct*) malloc(graph.ne * sizeof(EdgeStruct));
-  inDegZC = (V_ID*) malloc(graph.nvDst * sizeof(V_ID));
-  E_ID count = 0;
-  for (int v = 0; v < nvDst; v++) {
+  inDegZC = (V_ID*) malloc(graph.nvNewSrc * sizeof(V_ID));
+  // Step 1: compute in-degree
+  for (V_ID v = nvSrc; v < nvNewSrc; v++) {
+    inDegZC[v] = 0;
+    assert(inEdges.find(v) != inEdges.end());
+    std::set<V_ID>::const_iterator it;
+    for (it = inEdges[v]->begin(); it != inEdges[v]->end(); it++) {
+      inDegZC[v] += *it < nvSrc ? 1 : inDegZC[*it];
+    }
+  }
+  for (V_ID v = 0; v < nvSrc; v++) {
+    inDegZC[v] = 0;
     if (inEdges.find(v) != inEdges.end()) {
-      inDegZC[v] = inEdges[v]->size();
-      std::set<V_ID>::const_iterator it;
-      for (it = inEdges[v]->begin(); it != inEdges[v]->end(); it++) {
+      std::set<V_ID>::const_iterator first = inEdges[v]->begin();
+      std::set<V_ID>::const_iterator last = inEdges[v]->end();
+      std::set<V_ID>::const_iterator it = first;
+      for (it = first; it != last; it++)
+        inDegZC[v] += *it < nvSrc ? 1 : inDegZC[*it];
+    }
+  }
+  // Step 2: construct in edges;
+  E_ID count = 0;
+  for (V_ID v = 0; v < nvNewSrc; v++) {
+    if (inEdges.find(v) != inEdges.end()) {
+      std::set<V_ID>::const_iterator first = inEdges[v]->begin();
+      std::set<V_ID>::const_iterator last = inEdges[v]->end();
+      std::set<V_ID>::const_iterator it = first;
+      for (it = first; it != last; it++) {
+        colIdxZC[count].src = *it;
+        colIdxZC[count].dst = v;
+        count ++;
+        if (outEdges.find(*it) == outEdges.end())
+          outEdges[*it] = new std::set<V_ID>();
+        outEdges[*it]->insert(v);
+      }
+    }
+    rowPtrZC[v].index = count;
+  }
+  checkCUDA(cudaMalloc(&inRowPtrFB, graph.nvNewSrc * sizeof(NodeStruct)));
+  checkCUDA(cudaMalloc(&inColIdxFB, graph.ne * sizeof(EdgeStruct)));
+  checkCUDA(cudaMalloc(&inDegFB, graph.nvNewSrc * sizeof(V_ID)));
+  checkCUDA(cudaMemcpy(inRowPtrFB, rowPtrZC, graph.nvNewSrc * sizeof(NodeStruct),
+                       cudaMemcpyHostToDevice));
+  checkCUDA(cudaMemcpy(inColIdxFB, colIdxZC, graph.ne * sizeof(EdgeStruct),
+                       cudaMemcpyHostToDevice));
+  checkCUDA(cudaMemcpy(inDegFB, inDegZC, graph.nvNewSrc * sizeof(V_ID),
+                       cudaMemcpyHostToDevice));
+  graph.inRowPtr = inRowPtrFB;
+  graph.inColIdx = inColIdxFB;
+  graph.inDeg = inDegFB;
+  // Step 3: construct out edges
+  count = 0;
+  for (V_ID v = 0; v < nvNewSrc; v++) {
+    if (outEdges.find(v) != outEdges.end()) {
+      std::set<V_ID>::const_iterator first = outEdges[v]->begin();
+      std::set<V_ID>::const_iterator last = outEdges[v]->end();
+      std::set<V_ID>::const_iterator it = first;
+      for (it = first; it != last; it++) {
         colIdxZC[count].src = *it;
         colIdxZC[count].dst = v;
         count ++;
       }
-    } else {
-      inDegZC[v] = 0;
     }
     rowPtrZC[v].index = count;
   }
-  checkCUDA(cudaMalloc(&rowPtrFB, graph.nvDst * sizeof(NodeStruct)));
-  checkCUDA(cudaMalloc(&colIdxFB, graph.ne * sizeof(EdgeStruct)));
-  checkCUDA(cudaMalloc(&inDegFB, graph.nvDst * sizeof(V_ID)));
-  checkCUDA(cudaMemcpy(rowPtrFB, rowPtrZC, graph.nvDst * sizeof(NodeStruct),
+  checkCUDA(cudaMalloc(&outRowPtrFB, graph.nvNewSrc * sizeof(NodeStruct)));
+  checkCUDA(cudaMalloc(&outColIdxFB, graph.ne * sizeof(EdgeStruct)));
+  checkCUDA(cudaMemcpy(outRowPtrFB, rowPtrZC, graph.nvNewSrc * sizeof(NodeStruct),
                        cudaMemcpyHostToDevice));
-  checkCUDA(cudaMemcpy(colIdxFB, colIdxZC, graph.ne * sizeof(EdgeStruct),
+  checkCUDA(cudaMemcpy(outColIdxFB, colIdxZC, graph.ne * sizeof(EdgeStruct),
                        cudaMemcpyHostToDevice));
-  checkCUDA(cudaMemcpy(inDegFB, inDegZC, graph.nvDst * sizeof(V_ID),
-                       cudaMemcpyHostToDevice));
+  graph.outRowPtr = outRowPtrFB;
+  graph.outColIdx = outColIdxFB;
+  // Step 3: free resources
   free(rowPtrZC);
   free(colIdxZC);
   free(inDegZC);
-  graph.rowPtr = rowPtrFB;
-  graph.colIdx = colIdxFB;
-  graph.inDeg = inDegFB;
 }
 
-void GNNModel::set_in_graph(int nvSrc, int nvDst,
-         std::map<V_ID, std::set<V_ID>* >& edgeList)
+void GNNModel::set_dep_graph(V_ID nvSrc, V_ID nvNewSrc, V_ID nvDst,
+         std::map<V_ID, std::set<V_ID>* >& edgeList,
+         std::vector<std::pair<V_ID, V_ID> >& ranges)
 {
-  set_graph(inGraph, nvSrc, nvDst, edgeList);
+  set_graph(depGraph, nvSrc, nvNewSrc, nvDst, edgeList, ranges);
   printf("Add normal in-edge graph: nvSrc(%d) nvDst(%d) ne(%d)\n",
-         inGraph.nvSrc, inGraph.nvDst, inGraph.ne);
+         depGraph.nvSrc, depGraph.nvDst, depGraph.ne);
 }
 
-void GNNModel::set_out_graph(int nvSrc, int nvDst,
+void GNNModel::set_hyper_graph(int nvSrc, int nvDst,
          std::map<V_ID, std::set<V_ID>* >& edgeList)
 {
-  set_graph(outGraph, nvSrc, nvDst, edgeList);
-  printf("Add normal out-edge graph: nvSrc(%d) nvDst(%d) ne(%d)\n",
-         outGraph.nvSrc, outGraph.nvDst, outGraph.ne);
-}
-
-void GNNModel::set_hyper_in_graph(int nvSrc, int nvDst,
-         std::map<V_ID, std::set<V_ID>* >& edgeList)
-{
-  set_graph(hyInGraph, nvSrc, nvDst, edgeList);
+  assert(nvSrc >= nvDst);
+  std::vector<std::pair<V_ID, V_ID> > ranges;
+  set_graph(hyGraph, nvSrc, nvSrc, nvDst, edgeList, ranges);
   printf("Add hyper in-edge graph: nvSrc(%d) nvDst(%d) ne(%d)\n",
-         hyInGraph.nvSrc, hyInGraph.nvDst, hyInGraph.ne);
-}
-
-void GNNModel::set_hyper_out_graph(int nvSrc, int nvDst,
-         std::map<V_ID, std::set<V_ID>* >& edgeList)
-{
-  set_graph(hyOutGraph, nvSrc, nvDst, edgeList);
-  printf("Add hyper in-edge graph: nvSrc(%d) nvDst(%d) ne(%d)\n",
-         hyOutGraph.nvSrc, hyOutGraph.nvDst, hyOutGraph.ne);
+         hyGraph.nvSrc, hyGraph.nvDst, hyGraph.ne);
 }
 
 void GNNModel::load_node_label(int nv, std::string filename)

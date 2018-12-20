@@ -86,6 +86,7 @@ void aggre_coop_kernel(V_ID rowLeft,
       if (threadIdx.x == 0)
         blkColStart = startColIdx;
     }
+    //if (myNumEdges > 0) printf("tid(%d) myNumEdges(%d)\n", threadIdx.x, myNumEdges);
     acc_h[threadIdx.x] = 0.0f;
     __syncthreads();
     BlockScan(temp_storage).ExclusiveSum(myNumEdges, scratchOffset, totalNumEdges);
@@ -116,8 +117,9 @@ GNNLayer::GNNLayer(GNNModel* _model,
   actMode(_actMode), aggMode(_aggMode)
 {
   Handler handle = model->handle;
-  int nvSrc = model->inGraph.nvSrc;
-  int nvDst = model->inGraph.nvDst;
+  int nvSrc = model->depGraph.nvSrc;
+  int nvNewSrc = model->depGraph.nvNewSrc;
+  int nvDst = model->depGraph.nvDst;
   // Create and init weights
   // denseW [_inputDim x _hiddenDim]
   dense = new AdamParameter(handle, inputDim, hiddenDim);
@@ -140,10 +142,10 @@ GNNLayer::GNNLayer(GNNModel* _model,
                                         CUDNN_DATA_FLOAT,
                                         nvDst, outputDim, 1, 1));
   // allocate hiddenPtr, aggrePtr, outputPtr
-  checkCUDA(cudaMalloc(&hiddenPtr, nvSrc * hiddenDim * sizeof(float)));
-  checkCUDA(cudaMalloc(&hiddenGradPtr, nvSrc * outputDim * sizeof(float)));
-  checkCUDA(cudaMalloc(&aggrePtr, nvDst * hiddenDim * sizeof(float)));
-  checkCUDA(cudaMalloc(&aggreGradPtr, nvDst * hiddenDim * sizeof(float)));
+  checkCUDA(cudaMalloc(&hiddenPtr, nvNewSrc * hiddenDim * sizeof(float)));
+  checkCUDA(cudaMalloc(&hiddenGradPtr, nvNewSrc * outputDim * sizeof(float)));
+  checkCUDA(cudaMalloc(&aggrePtr, nvNewSrc * hiddenDim * sizeof(float)));
+  checkCUDA(cudaMalloc(&aggreGradPtr, nvNewSrc * hiddenDim * sizeof(float)));
   checkCUDA(cudaMalloc(&outputPtr, nvDst * outputDim * sizeof(float)));
   checkCUDA(cudaMalloc(&outputGradPtr, nvDst * outputDim * sizeof(float)));
 }
@@ -169,7 +171,7 @@ void GNNLayer::forward(void)
 {
   Handler handle = model->handle;
   float alpha = 1.0f, beta = 0.0f;
-  Graph graph = model->inGraph;
+  Graph graph = model->depGraph;
   assert(graph.nvSrc == graph.nvDst);
   V_ID nv = graph.nvSrc;
   // Compute hiddenPtr
@@ -179,16 +181,30 @@ void GNNLayer::forward(void)
                         inputPtr, inputDim,
                         &beta, hiddenPtr, hiddenDim));
   // relu over hiddenPtr
-  checkCUDNN(cudnnActivationForward(handle.dnn, actiDesc, &alpha, hiddenTensor, hiddenPtr, &beta, hiddenTensor, hiddenPtr));
-  // Compute aggrePtr
+  checkCUDNN(cudnnActivationForward(handle.dnn, actiDesc,
+                                    &alpha, hiddenTensor, hiddenPtr,
+                                    &beta, hiddenTensor, hiddenPtr));
+  // Compute aggregated vectors for vertices [nvSrc, nvNewSrc)
+  // save the results in hiddenPtr
   int blkSize = CUDA_NUM_THREADS / hiddenDim * hiddenDim;
-  int numBlks = (nv * hiddenDim + blkSize - 1) / blkSize;
+  //printf("graph.ranges.size() = %zu\n", graph.ranges.size());
+  for (int i = 0; i < graph.ranges.size(); i++) {
+    V_ID myNv = graph.ranges[i].second - graph.ranges[i].first + 1;
+    int numBlks = (myNv * hiddenDim + blkSize - 1) / blkSize;
+    if (numBlks > BLOCK_SIZE_LIMIT)
+      numBlks = BLOCK_SIZE_LIMIT;
+    aggre_coop_kernel<<<numBlks, blkSize>>>(
+        graph.ranges[i].first, graph.ranges[i].second, hiddenDim,
+        graph.inRowPtr, graph.inColIdx, hiddenPtr, hiddenPtr);
+  }
+  // Compute aggrePtr
+  int numBlks = (graph.nvDst * hiddenDim + blkSize - 1) / blkSize;
   if (numBlks > BLOCK_SIZE_LIMIT)
     numBlks = BLOCK_SIZE_LIMIT;
-  aggre_coop_kernel<<<numBlks, blkSize>>>(0, nv - 1, hiddenDim,
-    graph.rowPtr, graph.colIdx, hiddenPtr, aggrePtr);
-  // normalize aggreVector by in-degree of vertices
-  norm_coop_kernel<<<numBlks, blkSize>>>(0, nv - 1, hiddenDim,
+  aggre_coop_kernel<<<numBlks, blkSize>>>(0, graph.nvDst - 1, hiddenDim,
+    graph.inRowPtr, graph.inColIdx, hiddenPtr, aggrePtr);
+  // Normalize aggreVector by in-degree of vertices
+  norm_coop_kernel<<<numBlks, blkSize>>>(0, graph.nvDst - 1, hiddenDim,
     graph.inDeg, aggrePtr);
 
   // Compute outputPtr
@@ -210,20 +226,20 @@ void GNNLayer::forward(void)
   } else {
     assert(false);
   }
-  print("GNNLayer:input", inputPtr, 20 * inputDim , inputDim);
+  //print("GNNLayer:input", inputPtr, std::min(20, nv) * inputDim , inputDim);
   //print("GNNLayer:selfW", selfWPtr, inputDim * outputDim, inputDim);
   //print("GNNLayer:denseW", denseWPtr, inputDim * hiddenDim, inputDim);
-  print("GNNLayer:hidden", hiddenPtr, 20 * hiddenDim, hiddenDim);
-  print("GNNLayer:aggre", aggrePtr, 20 * hiddenDim, hiddenDim);
+  //print("GNNLayer:hidden", hiddenPtr, std::min(20, graph.nvNewSrc) * hiddenDim, hiddenDim);
+  //print("GNNLayer:aggre", aggrePtr, std::min(20, nv) * hiddenDim, hiddenDim);
   //print("GNNLayer:neighW", neighWPtr, hiddenDim * outputDim, hiddenDim);
-  print("GNNLayer:output", outputPtr, 20 * outputDim, outputDim);
+  //print("GNNLayer:output", outputPtr, std::min(20, nv) * outputDim, outputDim);
 }
 
 void GNNLayer::backward(void)
 {
   Handler handle = model->handle;
   float alpha = 1.0f, beta = 0.0f;
-  Graph graph = model->outGraph;
+  Graph graph = model->depGraph;
   assert(graph.nvSrc == graph.nvDst);
   V_ID nv = graph.nvSrc;
   if (actMode == ACT_MODE_RELU) {
@@ -259,16 +275,27 @@ void GNNLayer::backward(void)
                         &alpha, neigh->W, hiddenDim,
                         outputGradPtr, outputDim,
                         &beta, aggreGradPtr, hiddenDim));
-  // Compute hiddenGrad
+  // normalize aggreVector by in-degree of vertices
   int blkSize = CUDA_NUM_THREADS / hiddenDim * hiddenDim;
   int numBlks = (nv * hiddenDim + blkSize - 1) / blkSize;
   if (numBlks > BLOCK_SIZE_LIMIT)
     numBlks = BLOCK_SIZE_LIMIT;
-  // normalize aggreVector by in-degree of vertices
   norm_coop_kernel<<<numBlks, blkSize>>>(0, nv - 1, hiddenDim,
     graph.inDeg, aggrePtr);
+  // Compute aggreGrad for vertices [depGraph.nv, depGraph.nvNewSrc)
+  // save the results in aggreGradPrt
+  for (int i = graph.ranges.size() - 1; i >= 0; i--) {
+    V_ID myNv = graph.ranges[i].second - graph.ranges[i].first + 1;
+    int myBlks = (myNv * hiddenDim + blkSize - 1) / blkSize;
+    if (myBlks > BLOCK_SIZE_LIMIT)
+      myBlks = BLOCK_SIZE_LIMIT;
+    aggre_coop_kernel<<<myBlks, blkSize>>>(
+        graph.ranges[i].first, graph.ranges[i].second, hiddenDim,
+        graph.outRowPtr, graph.outColIdx, aggreGradPtr, aggreGradPtr);
+  }
+  // Compute hiddenGrad
   aggre_coop_kernel<<<numBlks, blkSize>>>(0, nv - 1, hiddenDim,
-      graph.rowPtr, graph.colIdx, aggreGradPtr, hiddenGradPtr);
+      graph.outRowPtr, graph.outColIdx, aggreGradPtr, hiddenGradPtr);
   // Backprop relu
   int n = nv * hiddenDim;
   reluBackward<<<GET_BLOCKS(n), CUDA_NUM_THREADS>>>(
@@ -290,7 +317,9 @@ void GNNLayer::backward(void)
                           hiddenGradPtr, hiddenDim,
                           &alpha/**1.0**/,  inputGradPtr, inputDim));
   }
-  print("GNNLayer:denseWGrad", dense->WGrad, hiddenDim * inputDim, inputDim);
+  //print("GNNLayer:aggreGrad", aggreGradPtr, std::min(20, graph.nvNewSrc) * inputDim, inputDim);
+  //print("GNNLayer:hiddenGrad", hiddenGradPtr, std::min(20, nv) * inputDim, inputDim);
+  //print("GNNLayer:denseWGrad", dense->WGrad, hiddenDim * inputDim, inputDim);
 }
 
 void GNNLayer::update(AdamOpt adam)
@@ -310,7 +339,7 @@ GCLayer::GCLayer(GNNModel* _model,
   inputDim(_inputDim), numClass(_numClass)
 {
   Handler handle = model->handle;
-  int ng = model->hyInGraph.nvDst;
+  int ng = model->hyGraph.nvDst;
   // Create and init weights
   // denseW [_inputDim x _numClass]
   dense = new AdamParameter(handle, inputDim, numClass);
@@ -325,14 +354,14 @@ void GCLayer::forward(void)
 {
   Handler handle = model->handle;
   float alpha = 1.0f, beta = 0.0f;
-  Graph graph = model->hyInGraph;
+  Graph graph = model->hyGraph;
   // Compute aggrePtr
   int blkSize = CUDA_NUM_THREADS / inputDim * inputDim;
   int numBlks = (graph.nvDst * inputDim + blkSize - 1) / blkSize;
   if (numBlks > BLOCK_SIZE_LIMIT)
     numBlks = BLOCK_SIZE_LIMIT;
   aggre_coop_kernel<<<numBlks, blkSize>>>(0, graph.nvDst-1, inputDim,
-      graph.rowPtr, graph.colIdx, inputPtr, aggrePtr);
+      graph.inRowPtr, graph.inColIdx, inputPtr, aggrePtr);
   
   // TODO: normalize graph vector by degrees
 
@@ -347,7 +376,7 @@ void GCLayer::backward(void)
 {
   Handler handle = model->handle;
   float alpha = 1.0f, beta = 0.0f;
-  Graph graph = model->hyOutGraph;
+  Graph graph = model->hyGraph;
   // Compute denseW grad
   checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_N, CUBLAS_OP_T,
                         inputDim, numClass, graph.nvDst,
@@ -367,7 +396,7 @@ void GCLayer::backward(void)
   if (numBlks > BLOCK_SIZE_LIMIT)
     numBlks = BLOCK_SIZE_LIMIT;
   aggre_coop_kernel<<<numBlks, blkSize>>>(0, graph.nvSrc, inputDim,
-      graph.rowPtr, graph.colIdx, aggreGradPtr, inputGradPtr);
+      graph.outRowPtr, graph.outColIdx, aggreGradPtr, inputGradPtr);
 }
 
 void GCLayer::update(AdamOpt adam)
@@ -383,7 +412,7 @@ NCLayer::NCLayer(GNNModel* _model,
   inputDim(_inputDim), numClass(_numClass)
 {
   Handler handle = model->handle;
-  int nvDst = model->inGraph.nvDst;
+  int nvDst = model->depGraph.nvDst;
   // Create and init weights
   // denseW [_inputDim x _numClass]
   dense = new AdamParameter(handle, inputDim, numClass);
@@ -396,20 +425,20 @@ void NCLayer::forward(void)
 {
   Handler handle = model->handle;
   float alpha = 1.0f, beta = 0.0f;
-  int nv = model->inGraph.nvDst;
+  int nv = model->depGraph.nvDst;
   checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_T, CUBLAS_OP_N,
                         numClass, nv, inputDim,
                         &alpha, dense->W, inputDim,
                         inputPtr, inputDim,
                         &beta, outputPtr, numClass));
-  print("NCLayer::outputPtr", outputPtr, 20 * numClass, numClass);
+  //print("NCLayer::outputPtr", outputPtr, std::min(20, nv) * numClass, numClass);
 }
 
 void NCLayer::backward(void)
 {
   Handler handle = model->handle;
   float alpha = 1.0f, beta = 0.0f;
-  int nv = model->inGraph.nvDst;
+  int nv = model->depGraph.nvDst;
   // Compute denseW grad
   checkCUDA(cublasSgemm(handle.blas, CUBLAS_OP_N, CUBLAS_OP_T,
                         inputDim, numClass, nv,
@@ -458,7 +487,7 @@ void SMLayer::forward(void)
                                  CUDNN_SOFTMAX_MODE_CHANNEL,
                                  &alpha, outputTensor, inputPtr,
                                  &beta, outputTensor, outputPtr));
-  print("SMLayer::outputPtr", outputPtr, 20 * numClass, numClass);
+  //print("SMLayer::outputPtr", outputPtr, 4 * numClass, numClass);
 }
 
 __global__
@@ -490,6 +519,7 @@ void SMLayer::backward(void)
                             cudaMemcpyDeviceToDevice));
   softmax_backward<<<GET_BLOCKS(numSamples), CUDA_NUM_THREADS>>>(
       inputGradPtr, model->labels, numClass, numSamples);
+  return;
   //print("SMLayer::inputGradPtr", inputGradPtr, numSamples * numClass, numClass);
   // TODO: remote following code
   float* loss;
