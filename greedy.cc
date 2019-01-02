@@ -138,7 +138,7 @@ void transfer_graph(std::map<V_ID, std::set<V_ID>*>& orgList,
     v = v + 1;
   }
   newNv = v;
-  // Reorder vertices by their depthsa
+  // Reorder vertices by their depths
   // newIdxs[i] means vertex i is assigned with new ID newIdxs[i]
   V_ID* newIdxs = (V_ID*) malloc(newNv * sizeof(V_ID));
   for (V_ID i = 0; i < nv; i++)
@@ -165,15 +165,15 @@ void transfer_graph(std::map<V_ID, std::set<V_ID>*>& orgList,
         optList[newIdxs[i]]->insert(newIdxs[*it]);
       }
     }
-  for (int i = 0; i < ranges.size(); i++)
-    printf("[%d] left = %d right = %d\n", i, ranges[i].first, ranges[i].second);
-  for (V_ID i = 0; i < newNv; i++)
-    if (optList.find(i) != optList.end()) {
-      std::set<V_ID>::const_iterator it, first = orgList[i]->begin(),
-                                     last = orgList[i]->end();
-      for (it = first; it != last; it++)
-        printf("%d -> %d\n", *it, i);
-    }
+  //for (int i = 0; i < ranges.size(); i++)
+  //  printf("[%d] left = %d right = %d\n", i, ranges[i].first, ranges[i].second);
+  //for (V_ID i = 0; i < newNv; i++)
+  //  if (optList.find(i) != optList.end()) {
+  //    std::set<V_ID>::const_iterator it, first = orgList[i]->begin(),
+  //                                   last = orgList[i]->end();
+  //    for (it = first; it != last; it++)
+  //      printf("%d -> %d\n", *it, i);
+  //  }
   free(depths);
   free(newIdxs);
 }

@@ -127,6 +127,11 @@ int main(int argc, char **argv)
                                layers[layers.size() - 1]->outputGradPtr,
                                nv, model.numClass));
 
+  cudaEvent_t startEvent, endEvent;
+  checkCUDA(cudaEventCreate(&startEvent));
+  checkCUDA(cudaEventCreate(&endEvent));
+  checkCUDA(cudaDeviceSynchronize());
+  checkCUDA(cudaEventRecord(startEvent));
   for (int iter = 0; iter < epochs; iter ++) {
     adam.next_epoch();
     for (int i = 0; i < layers.size(); i++) {
@@ -137,6 +142,11 @@ int main(int argc, char **argv)
       layers[i]->update(adam);
     }
   }
+  checkCUDA(cudaEventRecord(endEvent));
+  checkCUDA(cudaEventSynchronize(endEvent));
+  float milliseconds;
+  cudaEventElapsedTime(&milliseconds, startEvent, endEvent);
+  printf("EXECUTION TIME = %.4lfms\n", milliseconds);
 }
 
 GNNModel::GNNModel(Handler _handle)
