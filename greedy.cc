@@ -79,8 +79,9 @@ void sub_pair_count(V_ID u, V_ID v,
 void transfer_graph(std::map<V_ID, std::set<V_ID>*>& orgList,
                     std::map<V_ID, std::set<V_ID>*>& optList,
                     std::vector<std::pair<V_ID, V_ID> >& ranges,
-                    V_ID nv, V_ID maxDepth, V_ID width, V_ID& newNv)
+                    V_ID nv, E_ID ne, V_ID maxDepth, V_ID width, V_ID& newNv)
 {
+  printf("CP#1: nv = %d\n", nv);
   std::unordered_map<std::pair<V_ID, V_ID>, V_ID> counter;
   std::set<PairCount, pair_count_compare> heap;
   for (V_ID i = 0; i < nv; i++)
@@ -96,6 +97,7 @@ void transfer_graph(std::map<V_ID, std::set<V_ID>*>& orgList,
           else
             counter[std::make_pair(u, v)] ++;
         }
+      if (i % 1000 == 0) printf("v = %d\n", i);
     }
   std::unordered_map<std::pair<V_ID, V_ID>, V_ID>::const_iterator it;
   for (it = counter.begin(); it != counter.end(); it++) {
@@ -104,12 +106,16 @@ void transfer_graph(std::map<V_ID, std::set<V_ID>*>& orgList,
   }
   V_ID* depths = (V_ID*) malloc(width * sizeof(V_ID));
   V_ID v = nv;
+  int saved = 0;
   while (v < nv + width) {
     if (heap.empty())
       break;
     PairCount pc = *heap.begin();
     heap.erase(heap.begin());
-    if (pc.cnt < COUNT_MERGE_THRESHOLD) break;
+    if (pc.cnt <= COUNT_MERGE_THRESHOLD) break;
+    saved += pc.cnt - 1;
+    printf("[%d] fst = %d snd = %d cnt = %d acc_save(%d)\n",
+           v, pc.fst, pc.snd, pc.cnt, saved);
     V_ID preDepth = (pc.fst < nv) ? 0 : depths[pc.fst - nv];
     if (pc.snd >= nv)
       preDepth = std::max(preDepth, depths[pc.snd - nv]);

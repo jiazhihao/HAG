@@ -56,8 +56,8 @@ int main(int argc, char **argv)
   std::string graphFile, hyGraphFile, nodeLabelFile, graphLabelFile;
   double learningRate = 0.001f;
   int epochs = 100;
-  V_ID maxDepth = 6;
-  V_ID maxWidth = 10000;
+  V_ID maxDepth = 10;
+  V_ID maxWidth = 60000;
   parse_input_args(argv, argc, graphFile, hyGraphFile,
                    nodeLabelFile, graphLabelFile,
                    learningRate, epochs);
@@ -67,12 +67,13 @@ int main(int argc, char **argv)
   V_ID u, v;
   V_ID nv = 0;
   std::map<V_ID, std::set<V_ID>* > inEdges;
-
+  E_ID ne = 0;
   while (fscanf(file, "%d, %d", &u, &v) != EOF) {
     // shift node indices by 1 to make them 0-indexed
     u --;
     // shift node indices by 1 to make them 0-indexed
     v --;
+    ne ++;
     if (std::max(u, v) >= nv)
       nv = std::max(u, v) + 1;
     // add inEdge
@@ -99,8 +100,8 @@ int main(int argc, char **argv)
   std::map<V_ID, std::set<V_ID>*> optInEdges;
   std::vector<std::pair<V_ID, V_ID> > optRanges;
   V_ID newNv;
-  transfer_graph(inEdges, optInEdges, optRanges,
-                 nv, maxDepth, maxWidth, newNv);
+  transfer_graph_reddit(inEdges, optInEdges, optRanges,
+                 nv, ne, maxDepth, maxWidth, newNv);
   GNNModel model(handle);
   model.set_dep_graph(nv, newNv, nv, optInEdges, optRanges);
   //std::vector<std::pair<V_ID, V_ID> > ranges;

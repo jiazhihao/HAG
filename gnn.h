@@ -230,6 +230,11 @@ private:
 void transfer_graph(std::map<V_ID, std::set<V_ID>*>& orgList,
                     std::map<V_ID, std::set<V_ID>*>& optList,
                     std::vector<std::pair<V_ID, V_ID> >& ranges,
-                    V_ID nv, V_ID maxDepth, V_ID width, V_ID& newNv);
+                    V_ID nv, E_ID ne, V_ID maxDepth, V_ID width, V_ID& newNv);
+
+void transfer_graph_reddit(std::map<V_ID, std::set<V_ID>*>& orgList,
+                           std::map<V_ID, std::set<V_ID>*>& optList,
+                           std::vector<std::pair<V_ID, V_ID> >& ranges,
+                           V_ID nv, E_ID ne, V_ID maxDepth, V_ID width, V_ID& newNv);
 
 #endif
