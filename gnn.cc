@@ -81,7 +81,14 @@ int main(int argc, char **argv)
       inEdges[v] = new std::set<V_ID>();
     inEdges[v]->insert(u);
   }
-  fclose(file);
+  //int cnt = 0;
+  //for (v = 0; v < nv; v++)
+  //  if (inEdges.find(v) != inEdges.end()) {
+  //    printf("v = %d inEdges[v] = %zu\n", v, inEdges[v]->size());
+  //    cnt += inEdges[v]->size() * inEdges[v]->size();
+  //  }
+  //printf("cnt = %d\n", cnt);
+  //fclose(file);
  
   float* inputZC = (float*) malloc(nv * HIDDEN_SIZE * sizeof(float));
   memset(inputZC, 0, nv * HIDDEN_SIZE * sizeof(float));
@@ -100,7 +107,7 @@ int main(int argc, char **argv)
   std::map<V_ID, std::set<V_ID>*> optInEdges;
   std::vector<std::pair<V_ID, V_ID> > optRanges;
   V_ID newNv;
-  transfer_graph_reddit(inEdges, optInEdges, optRanges,
+  transfer_graph(inEdges, optInEdges, optRanges,
                  nv, ne, maxDepth, maxWidth, newNv);
   GNNModel model(handle);
   model.set_dep_graph(nv, newNv, nv, optInEdges, optRanges);

@@ -76,8 +76,8 @@ inline int GET_BLOCKS(const int N)
 
 typedef int V_ID;
 typedef int E_ID;
-#define HIDDEN_SIZE 256
-#define NUM_LAYERS 3
+#define HIDDEN_SIZE 64
+#define NUM_LAYERS 2
 
 struct NodeStruct {
   E_ID index;
