@@ -76,7 +76,7 @@ inline int GET_BLOCKS(const int N)
 
 typedef int V_ID;
 typedef int E_ID;
-#define HIDDEN_SIZE 64
+#define HIDDEN_SIZE 256
 #define NUM_LAYERS 2
 
 struct NodeStruct {
@@ -131,7 +131,12 @@ public:
 
 class GNNModel {
 public:
-  GNNModel(Handler handle);
+  enum Name {
+    GCN,
+    GCN_P,
+    GraphSAGE_LSTM
+  };
+  GNNModel(Name name, Handler handle);
   void set_graph(Graph& graph, V_ID nvSrc, V_ID nvNewSrc, V_ID nvDst,
                  std::map<V_ID, std::set<V_ID>* >& inEdges,
                  std::vector<std::pair<V_ID, V_ID> >& ranges);
@@ -142,6 +147,7 @@ public:
                           std::map<V_ID, std::set<V_ID>* >& edgeList);
   void load_node_label(int nv, std::string filename);
 public:
+  Name name;
   Handler handle;
   Graph depGraph, hyGraph;
   int* labels;
@@ -181,6 +187,7 @@ private:
   cudnnTensorDescriptor_t hiddenTensor, outputTensor;
   float *hiddenPtr, *hiddenGradPtr;
   float *aggrePtr, *aggreGradPtr;
+  bool edgeMLP, edgeNorm, selfWeights;
 };
 
 // aggrePtr [graph->ng x inputDim]

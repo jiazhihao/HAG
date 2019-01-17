@@ -19,6 +19,8 @@
 void parse_input_args(char **argv, int argc,
                       std::string &graphFile, std::string &hyGraphFile,
                       std::string &nodeLabelFile, std::string &graphLabelFile,
+                      std::string &graphIndFile,
+                      V_ID &maxDepth, V_ID &maxWidth,
                       double &learningRate, int &epochs)
 {
   for (int i = 1; i < argc; i++)
@@ -38,6 +40,21 @@ void parse_input_args(char **argv, int argc,
       nodeLabelFile = std::string(argv[++i]);
       continue;
     }
+    if (!strcmp(argv[i], "-gi"))
+    {
+      graphIndFile = std::string(argv[++i]);
+      continue;
+    }
+    if (!strcmp(argv[i], "-depth"))
+    {
+      maxDepth = std::atoi(argv[++i]);
+      continue;
+    }
+    if (!strcmp(argv[i], "-width"))
+    {
+      maxWidth = std::atoi(argv[++i]);
+      continue;
+    }
     if (!strcmp(argv[i], "-lr"))
     {
       learningRate = std::atof(argv[++i]);
@@ -51,16 +68,28 @@ void parse_input_args(char **argv, int argc,
   }
 }
 
+#ifdef DEADCODE
+V_ID degree[1000000];
+struct degree_compare {
+  bool operator()(const V_ID& lhs, const V_ID& rhs) const {
+    if (degree[lhs] != degree[rhs]) return (degree[lhs] > degree[rhs]);
+    return lhs < rhs;
+  }
+};
+#endif
+
 int main(int argc, char **argv)
 {
-  std::string graphFile, hyGraphFile, nodeLabelFile, graphLabelFile;
+  std::string graphFile, hyGraphFile, nodeLabelFile = "", graphLabelFile = "";
+  std::string graphIndFile;
   double learningRate = 0.001f;
   int epochs = 100;
   V_ID maxDepth = 10;
-  V_ID maxWidth = 60000;
+  V_ID maxWidth = 0;
   parse_input_args(argv, argc, graphFile, hyGraphFile,
-                   nodeLabelFile, graphLabelFile,
-                   learningRate, epochs);
+                   nodeLabelFile, graphLabelFile, graphIndFile,
+                   maxDepth, maxWidth, learningRate, epochs);
+  printf("maxDepth = %d maxWidth = %d\n", maxDepth, maxWidth);
   Handler handle;
   //FILE* file = fopen("BZR_MD/BZR_MD_A.txt", "r");
   FILE* file = fopen(graphFile.c_str(), "r");
@@ -81,6 +110,45 @@ int main(int argc, char **argv)
       inEdges[v] = new std::set<V_ID>();
     inEdges[v]->insert(u);
   }
+#ifdef DEADCODE
+  // To be removed
+  std::map<V_ID, std::set<V_ID, degree_compare>* > optEdges;
+  for (v = 0; v < nv; v++) {
+    degree[v] = 0;
+    if (inEdges.find(v) != inEdges.end())
+      degree[v] = inEdges[v]->size();
+  }
+  std::set<size_t> hash;
+  int orgAgg = 0, optAgg = 0;
+  for (v = 0; v < nv; v++)
+    if (inEdges.find(v) != inEdges.end()) {
+      optEdges[v] = new std::set<V_ID, degree_compare>();
+      {
+        std::set<V_ID>::const_iterator it,
+            first = inEdges[v]->begin(), last = inEdges[v]->end();
+        for (it = first; it != last; it++)
+          optEdges[v]->insert(*it);
+      }
+      {
+        std::set<V_ID, degree_compare>::const_iterator it,
+            first = optEdges[v]->begin(), last = optEdges[v]->end();
+        size_t res = 17;
+        for (it = first; it != last; it++) {
+          res = res * 31 + *it;
+          if (it != first) {
+            orgAgg ++;
+            if (hash.find(res) == hash.end()) {
+              hash.insert(res);
+              optAgg ++;
+            }
+          }
+        }
+      }
+    }
+  printf("Original Agg = %d Optimized Agg = %d\n", orgAgg, optAgg);
+  return 0;
+  // To be removed
+#endif
   //int cnt = 0;
   //for (v = 0; v < nv; v++)
   //  if (inEdges.find(v) != inEdges.end()) {
@@ -88,7 +156,15 @@ int main(int argc, char **argv)
   //    cnt += inEdges[v]->size() * inEdges[v]->size();
   //  }
   //printf("cnt = %d\n", cnt);
-  //fclose(file);
+  fclose(file);
+  if (graphIndFile.length() > 0) {
+    file = fopen(graphIndFile.c_str(), "r");
+    std::vector<V_ID> graphIdx;
+    while (fscanf(file, "%d", &u) != EOF) {
+      graphIdx.push_back(u);
+    }
+    fclose(file);
+  }
  
   float* inputZC = (float*) malloc(nv * HIDDEN_SIZE * sizeof(float));
   memset(inputZC, 0, nv * HIDDEN_SIZE * sizeof(float));
@@ -109,7 +185,7 @@ int main(int argc, char **argv)
   V_ID newNv;
   transfer_graph(inEdges, optInEdges, optRanges,
                  nv, ne, maxDepth, maxWidth, newNv);
-  GNNModel model(handle);
+  GNNModel model(GNNModel::GCN, handle);
   model.set_dep_graph(nv, newNv, nv, optInEdges, optRanges);
   //std::vector<std::pair<V_ID, V_ID> > ranges;
   //model.set_dep_graph(nv, nv, nv, inEdges, ranges);
@@ -157,8 +233,8 @@ int main(int argc, char **argv)
   printf("EXECUTION TIME = %.4lfms\n", milliseconds);
 }
 
-GNNModel::GNNModel(Handler _handle)
-: handle(_handle) {}
+GNNModel::GNNModel(Name _name, Handler _handle)
+: name(_name), handle(_handle) {}
 
 void GNNModel::set_graph(Graph& graph, V_ID nvSrc, V_ID nvNewSrc, V_ID nvDst,
                          std::map<V_ID, std::set<V_ID>* >& inEdges,
