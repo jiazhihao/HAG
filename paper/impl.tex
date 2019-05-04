@@ -1,0 +1,29 @@
+\section{\xg Implementation}
+\label{sec:impl}
+%\begin{figure}
+%    \centering
+%    \includegraphics[scale=0.33]{figures/impl.pdf}
+%    \caption{Performance comparison among TensorFlow, DGL with PyTorch backend, and our framework. We measure the per-epoch run-time to train a 2-layer GCN model on the Pubmed dataset~\cite{GCN} on a NVIDIA Tesla V100 GPU.}
+%    \label{fig:compare_impl}
+%\end{figure}
+Existing deep learning frameworks such as TensorFlow~\cite{Tensorflow}, PyTorch~\footnote{https://pytorch.org/} and MXNet~\cite{MXNet} are designed for spatial data structures (e.g., images and text), and have limited supports for irregular data structures such as graphs.
+As a result, GNN implementations in existing frameworks translate graph structures to sparse adjacent matrices and use matrix operations to perform GNN training. 
+%GNN models implemented in existing deep learning frameworks such as TensorFlow~\cite{Tensorflow}, PyTorch~\footnote{https://pytorch.org/}, and DGL~\footnote{https://dgl.ai} translate graph structures to sparse matrices and use sparse matrix operations to perform GNN operations.
+This approach disables a number of critical system optimizations for graphs, such as efficient load balancing among different nodes and cache optimizations to accelerate neighborhood aggregations~\cite{Lux}, resulting in suboptimal runtime performance.
+
+Based on the above insights we implemented our \xg abstraction in \sys, a new deep learning framework for fast GNN training.
+The key difference between \sys and existing deep learning frameworks is that \sys explicitly manages graph structures in GNNs and reduces GNN training to a number of graph processing operations, such as node gather/scatter operations.
+
+The aggregations in each GNN layer are reduced to a global node scatter operation, which scatters the previous-layer activations of each node (i.e., $h^{(k-1)}_v$) along the edge direction, and a global node gather operation, which aggregates the neighbors of each node by gathering in-edges.
+
+The updates in each GNN layer are reduce to a global node update operation, which computes the new activations of each node (i.e., $h^{(k)}_v$).
+
+\sys can directly benefit from various existing system optimizations for graphs.
+We implemented \sys on top of Lux~\cite{Lux}, a high-performance graph processing framework, and used cuDNN~\cite{cudnn} and cuBLAS~\cite{cublas} as the underlying libraries to perform tensor operations such as matrix multiplications.
+
+%We implemented our GNN framework in Lux~\cite{Lux}, a high-performance graph processing framework.
+Figure~\ref{fig:compare_training} compares the training performance of TensorFlow, DGL with PyTorch~\footnote{https://www.dgl.ai/}, and \sys and shows that \sys significantly outperforms existing frameworks that use sparse matrix operations to perform GNN training.
+The speedup is due to a number of system optimizations enabled by maintaining graph structures in \sys.
+
+It is worth noting that our framework uses the same program interface as DGL, and therefore existing GNNs can directly run on our framework without any changes to the GNNs.
+

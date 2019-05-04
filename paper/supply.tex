@@ -1,0 +1,162 @@
+\documentclass{article}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage[draft]{hyperref}
+\usepackage{url}
+\usepackage{listings}
+\usepackage{pifont}
+\usepackage{tikz}
+\usepackage{subfig}
+\usepackage{multirow}
+\usepackage{pgfplots}
+\usepackage{booktabs}
+\usepackage{dcolumn}
+\usepackage{cancel}
+\usepackage{ifmtarg}
+\usepackage{verbatim}
+\usepackage{graphicx}
+\usepackage{chngpage}
+\usepackage{xspace}
+\usepackage{balance}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{cleveref}
+
+\usepackage{microtype}
+\usepackage{booktabs} % for professional tables
+\usepackage[accepted]{icml2019}
+
+\newcommand{\theHalgorithm}{\arabic{algorithm}} 
+\newcommand{\er}[1]{\mbox{\rm\em #1}}
+\newcommand{\sys}{LuxGNN\xspace}
+\newcommand{\xg}{HAG\xspace}
+\newcommand{\xgs}{HAGs\xspace}
+\newcommand{\ZJ}[1] {\textcolor{blue}{[ZJ: #1]}}
+\newcommand{\mw}[1] {\mathcal{\widehat{#1}}}
+\newcommand{\m}[1] {\mathcal{#1}}
+\newtheorem{theorem}{Theorem}
+
+\begin{document}
+\twocolumn[
+\icmltitle{Supplemental Materials for: Redundancy-Free Computation Graphs for Graph Neural Networks}
+\vskip 0.3in
+]
+\section{Proof of Theorem 1}
+\begin{theorem}
+\label{thm2}
+A GNN-graph $\m{G}$ and a \xg $\mw{G}$ are equivalent if and only if $\mathcal{N}(v) = \er{cover}(v)$ for all $v \in \m{V}$, where $\mathcal{N}(v)$ is $v$'s neighbors in the input graph.
+\end{theorem}
+\begin{proof}
+It is sufficient to prove that if $\mathcal{N}(v) = \er{cover}(v)$ for all $v \in \m{V}$, then the GNN-graph $\m{G}$ and the \xg $\mw{G}$ generate the same outputs (i.e., $h_v^{(k)}$) for every GNN layer. 
+
+We prove this by induction. Assume a GNN-graph $\m{G}$ and a \xg $\mw{G}$ generate the same outputs for the ($k$-1)-th layer, we prove the two graphs produce the same outputs for the $k$-th GNN layer.
+
+In Algorithm 2, $\widehat{a}_v$ is the aggregation results of node $v$, which is defined as
+\begin{eqnarray*}
+\widehat{a}_v & = & \textproc{Aggregate}(h_u^{(k-1)} | u \in cover(v)) \\
+& = & \textproc{Aggregate}(h_u^{(k-1)} | u \in \m{N}(v))
+\end{eqnarray*}
+This proves that Algorithm 1 and Algorithm 2 compute the same $a^{(k)}_v$. 
+In addition, both algorithms use the same $\textproc{Update}$ function that takes $a^{(k)}_v$ and $h^{(k-1)}_v$ as inputs and computes $h^{(k)}_v$, which applies that the two algorithms compute the same $h^{(k)}_v$.
+\end{proof}
+
+\section{Proof of Theorem 2}
+\begin{theorem}
+\label{thm3}
+For any GNN-graph $\m{G}$ and any GNN model $\m{M}$ with a sequential \textproc{Aggregate}, Algorithm 3 returns an equivalent \xg with globally minimized cost as long as 
+$\er{capacity}\geq |\m{E}|$, where $|\m{E}|$ is the number of edges in $\m{G}$.
+%For any \xg $\mw{G}$ that is equivalent to $\mathcal{G}$, $\er{cost}(\mw{G}_0) \leq \er{cost}(\mw{G}_0)$.
+\end{theorem}
+\begin{proof}
+Sequential aggregations require a specific ordering of a node's neighbors. Let $\m{N}_v$ denote the ordered list of node $v$'s neighbors and $\m{L}_v^{(i)}$ denote a list of the first $i$ elements in $\m{N}_v$:
+$$
+\m{L}_v^{(i)} = \big(\m{N}_v(1), \m{N}_v(2), ..., \m{N}_v(i)\big)
+$$
+where $\m{N}_v(i)$ is the $i$-th neighbor of node $v$.
+
+$\m{L}_v^{(i)}$ represents a necessary intermediate aggregation step for computing $a^{(k)}_v$ (since sequential aggregations are not commutative), and therefore any \xg must compute $\m{L}_v^{(i)}$ as an intermediate aggregation.
+Counting the number of distinct $\m{L}_v^{(i)}$ (where $v\in\m{V}$ and $1 < i \leq |\m{N}_v|$) provides a lower bound on the number of aggregations any equivalent \xg must perform. Assuming $\mw{G}_o$ is a globally optimal \xg under the cost model, we have:
+$$
+\er{cost}(\m{M}, \mw{G}_o) \geq \alpha_{\m{M}} \times \er{lb} + (\beta_{\m{M}} - \alpha_{\m{M}}) |\m{V}|
+$$
+where $\er{lb}$ is the number of distinct $\m{L}_v^{(i)}$ that must be computed by any equivalent \xg.
+
+Assuming $\mw{G}$ is the output \xg of Algorithm 3, we prove that  $\er{cost}(\m{M}, \mw{G}) = \er{cost}(\m{M}, \mw{G}_o)$ by using contradiction.
+In the case $\er{cost}(\m{M}, \mw{G}) > \er{cost}(\m{M}, \mw{G}_o)$, $\mw{G}$ must perform more than $lb$ aggregations. 
+
+{\bf Case 1.} 
+One possible case is that $\mw{G}$ computes at least one aggregation that is not a prefix of any $\m{N}_v$, indicating that $\mw{G}$ performs some useless aggregations, which contradicts with the fact that all intermediate aggregations added to $\mw{G}$ must be used at least once.
+
+{\bf Case 2.}
+The other possible case is that $\mw{G}$ computes the aggregation of some $\m{L}_v^{(i)}$ multiple times.
+However, in Algorithm 3, each iteration reduces the number of aggregations by at least 1, and there are $|\m{E}|$ aggregations initially. 
+This implies there cannot be redundant aggregations after $|\m{E}|$ iterations, which contradicts with the precondition of Case 2.
+\end{proof}
+
+\section{Proof of Theorem 3}
+\begin{theorem}
+\label{thm4}
+For any GNN-graph $\m{G}$ and any GNN model $\m{M}$ with a set \textproc{Aggregate}, Algorithm 3 gives a $(1-1/e)$-approximation under the cost model. More specifically, assume $\mw{G}$ is the \xg returned by Algorithm 3 and $\mw{G}_o$ is a globally optimal \xg, then
+$$
+\er{cost}(\m{M}, \mw{G}) \leq \frac{1}{e} \er{cost}(\m{M}, \m{G}) + \frac{e-1}{e} \er{cost}(\m{M}, \mw{G}_o)
+$$
+\end{theorem}
+
+\begin{proof}
+The idea of the proof is to build a {\em monotone submodular function}~\cite{IntroAlg} based on the cost model. 
+
+For any GNN-graph $\m{G}$ and an equivalent $\mw{G}$, we define
+\begin{eqnarray}
+\label{eqn0}
+f(\mw{G}) & = & \er{cost}(\m{M}, \m{G}) - \er{cost}(\m{M}, \mw{G})  \\
+& = & \alpha_{\m{M}} (|\m{E}| - |\mw{E}| + |\m{V}_A|) 
+\end{eqnarray}
+where $\m{V}_A$ is the set of aggregation nodes in $\mw{G}$, and $\m{E}$ and $\mw{E}$ are the set of edges in $\m{G}$ and $\mw{G}$, respectively.
+$f(\mw{G})$ measures the number of aggregations that can be saved by using $\mw{G}$ for GNN training.
+
+We begin by defining the subset relations between different \xgs. For two \xgs $\mw{G}$ and $\mw{G}'$, we define $\mw{G} \subseteq \mw{G'}$ iff $\m{V}_A$ is a subset of $\m{V}_A'$, where $\m{V}_A$ and $\m{V}_A'$ are the aggregation nodes in $\mw{G}$ and $\mw{G}'$, respectively.
+
+{\bf Prove that $f(\mw{G})$ is monotone.} We show that for all $\mw{G} \subseteq \mw{G'}$, $f(\mw{G}) \leq f(\mw{G'})$. This is true since $\mw{G} \subseteq \mw{G'}$ indicates that $\mw{G}'$ contains all aggregation nodes in $\mw{G}$, which applies that $\mw{G}'$ can at least save the same number of aggregations as $\mw{G}$.
+
+{\bf Prove that $f(\mw{G})$ is submodular.} We show that for all $\mw{G} \subseteq \mw{G'}$ and any aggregation node $n$, $f(\mw{G} + \{n\}) - f(\mw{G}) \geq f(\mw{G}' + \{n\}) - f(\mw{G}')$.
+This inequality holds because $f(\mw{G} + \{n\}) - f(\mw{G})$ measures the number of aggregations we can further save by adding aggregation $n$ to the existing \xg, which monotonically decreases as we add more aggregation nodes to the \xg.
+
+Let $\mw{G}^{(i)}$ denote the result \xg after the $i$-th iteration of Algorithm 3. $\mw{G}^{(i)}$ includes exactly $i$ aggregation nodes. Let $\mw{G}_o$ denote the optimal \xg under the cost model with $k$ aggregation nodes. We claim via induction that for $0\leq i \leq k$,
+\begin{equation}
+\label{eqn1}
+f(\mw{G}_o) - f(\mw{G}^{(i)}) \leq (1 - 1/k)^i f(\mw{G}_o) 
+\end{equation}
+
+The base case is trivially true. In the $i$-th step, Algorithm 3 selects an aggregation node $a_i$ by maximizing the marginal gain $f(\mw{G}^{(i)} + a_i) - f(\mw{G}^{(i)})$. Observe that the remaining aggregation nodes includes $\mw{G}_o \setminus \mw{G}^{(i-1)}$, a set of at most $k$ elements. The submodularity applies that
+$$
+f(\mw{G}_o) - f(\mw{G}^{(i-1)}) \leq \sum_{a \in \mw{G}_o \setminus \mw{G}^{(i-1)}} \big( f(\mw{G}^{(i)} + a) - f(\mw{G}^{(i)} \big)
+$$
+and this implies that the aggregation node $a_i$ has marginal value
+\begin{eqnarray*}
+& & f(\mw{G}^{(i-1)} + a_i) - f(\mw{G}^{(i-1)}) \\
+&\geq &\frac{1}{|\mw{G}_o \setminus \mw{G}^{(i-1)}|}\sum_{a\in \mw{G}_o \setminus \mw{G}^{(i-1)}}{\big( f(\mw{G}^{(i)} + a) - f(\mw{G}^{(i)} \big)} \\
+&\geq & \frac{1}{k} \big( f(\mw{G}_o) - f(\mw{G}^{(i-1)})\big)
+\end{eqnarray*}
+
+Assuming that Inequality~\ref{eqn1} holds for $\mw{G}^{(i-1)}$, we have
+\begin{eqnarray*}
+f(\mw{G}_o) - f(\mw{G}^{(i)}) & = &f(\mw{G}_o) - f(\mw{G}^{(i-1)}) - \big( f(\mw{G}^{(i)}) - f(\mw{G}^{(i-1)}) \big)\\
+& \leq & f(\mw{G}_o) - f(\mw{G}^{(i-1)} - \frac{1}{k} (f(\mw{G}_o) - f(\mw{G}^{(i-1)})) \\
+& = & (1 - 1/k) (f(\mw{G}_o) - f(\mw{G}^{(i-1)})) \\
+& \leq & (1-1/k)^i f(\mw{G}_o)
+\end{eqnarray*}
+which proves Inequality~\ref{eqn1}. Therefore, we have
+$$
+f(\mw{G}_o) - f(\mw{G}^{(k)}) \leq (1-1/k)^k f(\mw{G}_o) \leq e^{-1} f(\mw{G}_o)
+$$
+By taking in the definition of $f(\cdot)$, we have
+$$
+\er{cost}(\m{M}, \mw{G}) \leq \frac{1}{e} \er{cost}(\m{M}, \m{G}) + \frac{e-1}{e} \er{cost}(\m{M}, \mw{G}_o)
+$$
+\end{proof}
+
+\bibliographystyle{icml2019}
+\bibliography{bibliography}
+\end{document}
+

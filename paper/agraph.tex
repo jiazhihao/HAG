@@ -1,0 +1,178 @@
+\section{Hierarchically Aggregated Computation Graphs (\xgs)}
+\label{subsec:graph}
+
+Existing GNN models use a GNN {\em computation graph} (GNN-graph) to describe the computation in each GNN layer, as shown in Figure~\ref{fig:intro}b.
+For each node $v$ in the input graph, the GNN-graph includes an individual tree structure to define how to compute the activations $h_v^{(k)}$ of node $v$ by aggregating the previous-layer activations of $v$'s neighbors (i.e., $h^{(k-1)}_u, u \in \mathcal{N}(v)$).
+GNN-graphs are efficient at capturing direct neighborhood relations between nodes but include redundant computation and data transfers since aggregations on shared neighbors are performed multiple times.
+
+\hide{
+$\m{G}=(\langle\m{V}_S, \m{V}_A\rangle, \m{E})$ to describe neighborhood aggregations in a GNN layer.
+Each node $v \in \m{V}_S$ denotes $v$'s activations at the previous layer (i.e., $h_v^{k-1)}$, and a node $u \in \m{V}_A$ corresponds to the aggregated activations of $u$'s neighbors (i.e., $a_u^{(k)}$ in Algorithm~\ref{alg1}). There is an edge from $v \in \m{V}_S$ to $u \in \m{V}_A$ if $v$ and $u$ are neighbors in the input graph.
+Recall Figure~\ref{fig:intro}b, which shows an example standard computation graph.
+This approach is efficient at capturing direct neighborhood relations between nodes but includes redundant computation and data transfers since aggregations on shared neighbors are performed multiple times.
+}
+
+%Existing GNN models use an {\em standard} format of computation graphs to describe neighborhood aggregations in a GNN layer (see Figure~\ref{fig:intro}b).
+%An standard computation graph includes an independent aggregator for each node to aggregate its neighbors in the input graph.
+%This approach is efficient at capturing pair-wise relations between nodes but does not consider common sets of neighbors shared among multiple nodes.
+%Training GNN models directly on standard computation graphs results in redundant computation since aggregations on the shared neighbors are performed multiple times.
+%%This approach does not consider reusing the intermediate results of aggregating commonly used subset of nodes and results in redundant computation. 
+
+%GNNs learn graph topology by aggregating each node's neighbors in each layer (i.e., \textproc{Aggregate} in Algorithm~\ref{alg1}).
+We propose {\em Hierarchically Aggregated computation Graphs} (\xgs) for GNNs, which eliminate redundancy in GNN-graphs by hierarchically managing and reusing intermediate aggregation results.
+%Compared to the original graph representation, \xg reduces both computation and data transfer costs in GNNs.
+%Compared to an standard computation graph, a
+Compared to a GNN-graph, a \xg includes a new set of {\em aggregation} nodes, each of which represents the intermediate aggregations results for a subset of nodes (i.e., aggregation on a subset of $h^{(k-1)}_v$).
+Similar to edges in GNN-graphs, an edge $(u, v)$ in a \xg denotes an aggregation relation --- computing $v$'s activations requires aggregating $u$'s activations.
+
+%A \xg $\mw{G} = (\langle\m{V}_S, \m{V}_A, \m{V}_I\rangle, \mw{E})$ includes a third set of nodes $\m{V}_I$, each of which represents the intermediate aggregation results for a subset of nodes (i.e., aggregation on a subset of $h^{(k-1)}_v$).
+%A \xg $\mw{G} = (\langle\m{V}_S, \m{V}_A, \m{V}_I\rangle, \mw{E})$ is a directed acyclic graph with three types of nodes 
+%(i.e., $\mathcal{\widehat{V} = \widehat{V}_S + \widehat{V}_D + \widehat{V}_I}$). 
+%First, for each node $v$ in a given training graph, $\mathcal{\widehat{V}}_S$ includes a {\em source node} corresponding to $v$'s activations at the previous layer (i.e, $h^{(k-1)}_v$). 
+%Second, for each node $v$ in the training graph, $\mathcal{\widehat{V}}_E$ has a {\em destination node} corresponding to the aggregated activations of $v$'s neighbors (i.e., $a^{(k)}_v$).
+%Finally, $\mathcal{\widehat{V}}_I$ contains a number of intermediate {\em subset node}, each of which is the aggregated activations for a subset of nodes (i.e., aggregation on a subset of $h^{(k-1)}_v$).
+
+%Edges in $\mathcal{H}$ denotes aggregation --- all in-edges of each node are aggregated and used as the node's representation.
+%First, $\er{depth}(v)$ is the length of the longest path from a source node to $v$, which describes the depth of a node in the hierarchy.
+%$$
+%\er{depth}(v) = \begin{cases}
+%0 & v \in \widehat{\mathcal{V}}_S \\
+%\max_{(u, v) \in \widehat{\mathcal{E}}} \{\er{depth}(u) + 1\} & v \in %\mathcal{\widehat{V}}_I \cup \mathcal{\widehat{V}}_D
+%\end{cases}
+%$$
+
+Our \xg abstraction is general and applicable to many existing GNN models.
+Table~\ref{tab:gnns} shows how to use our abstraction to define existing GNNs, which can be further divided into two categories based on their \textproc{Aggregate} functions.
+
+\begin{itemize}
+\setlength\itemsep{0em}
+\item {\bf Set \textproc{Aggregate}}. Most GNNs assume the neighbors of a node have {\em no ordering}, and the aggregations are {\em associative} and {\em commutative} operations that are invariant to the order in which the aggregations are performed. Examples include GCN and GIN with summation aggregations and GraphSAGE-P with element-wise pooling aggregations (Table~\ref{tab:gnns}).
+Note that set aggregations in GNNs are designed to be order invariant and thus can be performed in a hierarchical fashion as we do in \xgs.
+\hide{
+%Note that aggregation functions in GNNs are designed to be order invariant which is exactly the property we need for \xgs  to work. 
+%Essentially, set aggregations are associative and commutative and aggregations can thus be performed in a hierarchical fashion as we do in \xgs.
+}
+%\ZJ{We define an \textproc{Aggregate} function to be {\em unordered} if the aggregation results are permutation invariant.}
+%and requires each element to be aggregated exactly once.
+%\item {\bf Idempotent \textproc{Aggregate}}. A second class of GNNs assume {\em no ordering} on the neighbors of a node and allows each neighbor to be aggregated {\em multiple} times.
+%For example, both GCN-P and GraphSAGE-P uses an element-wise max-pooling aggregator, which allows aggregating some neighbors multiple times and preserves the same outputs. 
+%We call this an {\em idempotent} \textproc{Aggregate}.
+
+\item {\bf Sequential \textproc{Aggregate}}. Another class of GNNs require a specific ordering of a node's neighbors and the aggregations are not commutative. 
+Examples include $N$-ary Tree-LSTM~\cite{TreeLSTM} and the LSTM variant of GraphSAGE~\cite{GraphSAGE}.
+However, \xgs can be applied in the case of sequential aggregations as well. 
+Rather than identifying common subsets of neighbors, we identify the common prefixes of the sequence of aggregated nodes, which can then be shared among nodes to reduce computation.
+%For GNNs with a {\em sequential} \textproc{Aggregate}, the neighbor set $\mathcal{N}(v)$ is an ordered list.
+%describing the order in which \textproc{Aggregate} should be performed on the neighbors.
+\end{itemize}
+
+%\ZJ{say why we need to define two types of aggregators}
+
+{\bf Formal definition of \xgs.}
+We use $\m{V}$ to denote the nodes in the input graph and use $\m{V}_A$ to denote the aggregation nodes added in a \xg.
+A GNN-graph is a special case in the \xg representation with no intermediate aggregation nodes (i.e., $\m{V}_A = \emptyset$). 
+We further define two additional functions for each node:
+
+First, $\er{aggr}(v)$ is the aggregation results of node $v$:
+$$
+\er{aggr}(v) = \textproc{Aggregate}(\{\er{aggr}(u) | u \in \mw{N}_v\})
+$$
+where $\mw{N}_v$ denotes the in-neighbors of node $v$ in a \xg.
+Note that $\er{aggr}(\cdot)$ is recursively defined, and there exist a sequential ordering to evaluate $\er{aggr}(v)$ for all nodes since each \xg is acyclic.
+
+\hide{
+First, $\er{aggr}(v)$ is the result of aggregating $v$'s in-neighbors with an \textproc{Aggregate} function.
+For a source node $v$ with no in-neighbors, $\er{aggr}(v)$ is $v$'s activations in the previous layer:
+$$
+\er{aggr}(v) = \begin{cases}
+h^{(k-1)}_v & v \in \m{V}_S \\
+\textproc{Aggregate}(\{\er{aggr}(u) | (u, v) \in \mathcal{\widehat{E}}\}) & v \in \m{V}_A \cup \m{V}_I
+\end{cases}
+$$
+Note that $\er{aggr}(\cdot)$ is recursively defined, and there exist a sequential ordering to evaluate $\er{aggr}(v)$ for all nodes since $\widehat{\mathcal{G}}$ is acyclic.
+}
+
+Second, we use $\er{cover}(v)$ to describe how to compute $\er{aggr}(v)$ by using the input activations $h^{(k-1)}_u$ from the previous layer.
+%we define $\er{cover}(v)$ as the set of nodes whose activations are aggregated to compute $\er{aggr}(v)$.
+\begin{equation}
+\er{aggr}(v) = \textproc{Aggregate}(\{h^{(k-1)}_u | u \in \er{cover}(v)\}
+\end{equation}
+$\er{cover}(v)$ defines the coverage of node $v$ in a \xg. For the \xg example in Figure~\ref{sec:intro}c, $\er{cover}(A) =  \{B, C, D\}$ because $h^{(k-1)}_A$, $h^{(k-1)}_B$, and $h^{(k-1)}_C$ are used as inputs to compute the aggregated results of node $A$.
+
+For a set \textproc{Aggregate}, $\er{cover}(\cdot)$ is an unordered set: % and can be calculated with the following equation.
+\begin{equation}
+\label{eqn1}
+\er{cover}(v) = \{w | \exists u \in \mw{N}_v: w \in \er{cover}(u)\}
+\end{equation}
+
+For a sequential \textproc{Aggregate}, $\er{cover}(\cdot)$ is an ordered list:
+\begin{equation}
+\label{eqn2}
+\er{cover}(v) = \big(\er{cover}(u_1), ..., \er{cover}(u_m)\big)
+\end{equation}
+where $u_1, ..., u_m$ are the ordered in-neighbors of $v$.
+%Theorem~\ref{thm1} shows how to compute $\er{cover}(v)$ for different types of aggregators. We prove the theorem in Appendix. 
+
+%\begin{theorem}
+%\label{thm1}
+%For a source node $v$, $\er{cover}(v) = \{v\}$ by definition.
+%\begin{eqnarray*}
+%\er{cover}_{\rm ord}(v) & = &\{ w | \exists! (u, v)\in\mathcal{\widehat{E}}: w \in \er{cover}_{\rm ord}(u) \} \\
+%\er{cover}_{\rm ide}(v) & = &\{ w | \exists (u, v)\in\mathcal{\widehat{E}}: w \in \er{cover}_{\rm ide}(u) \} \\
+%\er{cover}_{\rm seq}(v) & = &( \er{cover}_{\rm seq}(u_1), ... , \er{cover}_{\rm seq}(u_m))\\
+%\end{eqnarray*}
+%where $(u_1, v), ..., (u_m, v)$ are ordered in-edges of $v$.
+%\end{theorem}
+
+%\begin{eqnarray*}
+%& \er{cover}({\textproc{Aggregate}}, v) \\
+%& = \begin{cases}
+%\{ w | \exists! (u, v)\in\mathcal{\widehat{E}}: w \in \er{cover}(\textproc{Aggregate}, u) \} & \textrm{\textproc{Aggregate} is standard} \\
+%\{ w | \exists (u, v)\in\mathcal{\widehat{E}}: w \in \er{cover}(\textproc{Aggregate}, u) \} & \textrm{\textproc{Aggregate} is idempotent} \\
+%( \er{cover}(\textproc{Aggregate}, u_1), ... , \er{cover}(\textproc{Aggregate}, u_m)) & \textrm{\textproc{Aggregate} is sequential}
+%\end{cases}
+%\end{eqnarray*}
+
+\subsection{GNNs with \xgs}
+\begin{algorithm}[t]
+\caption{A GNN abstraction with \xgs. $\widehat{a}_v$ denotes the result of $\er{aggr}(v)$ at a GNN layer. We exclude layer index superscripts in $\widehat{a}_v$ to denote that $\widehat{a}_v$ does not need to be memorized for back propagation,
+and its memory can be reused across all layers.}
+\label{alg2}
+\begin{algorithmic}[1]
+\State $h^{(0)}_v = x_v, \forall v \in \m{V}$
+\For {$k= 1 \textrm{ to } K$}
+\For {$v \in {\m{V}}$}
+\State $\widehat{a}_v \leftarrow h^{(k-1)}_v$
+\EndFor
+\For {$v \in \m{V}_A$}
+\State $\widehat{a}_v \leftarrow \Call{Aggregate}{\{\widehat{a}_u | u \in \mw{N}_v\}}$
+\EndFor
+\For {$v \in {\m{V}}$}
+\State $a^{(k)}_v \leftarrow \Call{Aggregate}{\{\widehat{a}_u | u \in \mw{N}_v\}}$
+\State $h^{(k)}_v \leftarrow \Call{Update}{a^{(k)}_v, h^{(k-1)}_v}$
+\EndFor
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+Existing GNNs are defined with GNN-graphs as shown in Algorithm~\ref{alg1}.
+We extend the GNN abstraction in Algorithm~\ref{alg2} to make it also applicable to \xgs.
+%Algorithm~\ref{alg2} shows the extended GNN abstraction for \xgs.
+The extension does not require any modification to a GNN model, and the only difference is how to compute neighborhood aggregations (i.e., $a^{(k)}_v$) in each GNN layer.
+In Algorithm~\ref{alg2}, we first compute the results of intermediate aggregation nodes and save the results in $\widehat{a}_v$ (line 6-8).
+We then compute the neighborhood aggregations (i.e., $a^{(k)}_v$) for nodes in the input graph by opportunistically reusing the intermediate aggregation results $\widehat{a}_v$, which eliminates redundant computation and data transfers.
+
+Note that, although Algorithm~\ref{alg2} includes new intermediate variables $\widehat{a}_v$, the memory overhead for storing $\widehat{a}_v$ is negligible since $\widehat{a}_v$ is not used for back propagation and can be saved in a constant memory across all layers.
+
+We define a GNN-graph $\m{G}$ and a \xg $\mw{G}$ to be {\em equivalent} for a GNN model if (1) the GNN model outputs the same activations (i.e., $h^{(k)}_v$) at each layer, and (2) the GNN model computes the same gradients for all trainable parameters in back propagation. 
+We can use equivalent graphs interchangeably for both inference and training, since equivalent graphs produce the same outputs and gradients by definition.
+Theorem~\ref{thm2} provides a necessary and sufficient condition on graph equivalence. We prove the theorem in Appendix.
+\begin{theorem}
+\label{thm2}
+A GNN-graph $\m{G}$ and a \xg $\mw{G}$ are equivalent if and only if $\mathcal{N}(v) = \er{cover}(v)$ for all $v \in \m{V}$, where $\mathcal{N}(v)$ is $v$'s neighbors in the input graph and $\er{cover}(\cdot)$ is defined in Equation~\ref{eqn1} and~\ref{eqn2}.
+\end{theorem}
+
+%\textbf{Equality between standard graphs and hierarchical aggregation graphs.}
+
+Equivalent graphs achieve the same model accuracy but have different runtime performance. 
+Theorem~\ref{thm2} provides an efficient way to check equivalence between GNN-graphs and \xgs, and can be used as an oracle to search for optimized \xgs for any GNN-graph.

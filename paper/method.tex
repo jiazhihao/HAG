@@ -1,0 +1,178 @@
+\section{\xg Search Algorithm}
+For an arbitrary GNN model and GNN-graph, our goal is to find an equivalent \xg with optimized runtime performance.
+We define a cost model to quantitatively evaluate the runtime performance of arbitrary \xgs (Section~\ref{subsec:cost}) and introduce a \xg search algorithm that automatically finds an optimized \xg (Section~\ref{subsec:greedy}).
+
+Theoretically, we show that:
+\begin{itemize}
+\item For GNNs with sequential \textproc{Aggregate}, the \xg search algorithm can find {\em globally optimal} \xgs under the cost model.
+\item For GNNs with set \textproc{Aggregate}, finding an optimal \xg is NP-hard by a reduction from the NP-hard {\em maximum coverage problem} (see Appendix for the proof). The \xg search algorithm finds a {\em $(1-1/e)$-approximation} of globally optimal \xgs under the cost model.
+\end{itemize}
+%Our \xg search algorithm can empirically find highly optimized \xgs for GNNs with set \textproc{Aggregate}.
+%By using the cost model, The greedy algorithm can find globally optimal \xgs for GNNs with sequential \textproc{Aggregate} and highly efficient \xgs for GNNs with unordered \textproc{Aggregate}.
+\subsection{Cost Model}
+\label{subsec:cost}
+Our cost model assigns a cost to one epoch of GNN training on the \xg.
+
+The computation cost of a GNN model includes aggregating the neighbors of each node by calling \textproc{Aggregate} and updating the activations of each node via \textproc{Update}, as shown in Algorithm~\ref{alg2}. 
+For a GNN model $\m{M}$, we assume the cost of performing \textproc{Aggregate} on two elements is $\alpha_{\m{M}}$, and the cost of computing an \textproc{Update} is $\beta_{\m{M}}$.
+%For a GNN model $\mathcal{M}$, we assume the cost of performing \textproc{Aggregate} on two elements is $\alpha$, and the cost of performing an \textproc{Update} is $\beta$.
+In Algorithm~\ref{alg2}, computing $\widehat{a}_v$ with $|\mathcal{\widehat{N}}_v|$ neighbors requires performing $(|\mathcal{\widehat{N}}_v|-1)$ binary aggregations, whose cost is $\alpha_{\m{M}}\times(|\mathcal{\widehat{N}}_v|-1)$.
+Therefore, the total computation cost of training a GNN model $\mathcal{M}$ on a \xg $\mw{G}$ is
+\begin{eqnarray*}
+\er{cost}(\mathcal{M}, \mathcal{\widehat{G}}) & = &\sum_{v \in \m{V} \cup \m{V}_A} \alpha_{\m{M}} (|\mathcal{\widehat{N}}_v| - 1) + \sum_{v \in \m{V}} \beta_{\m{M}} \\
+& = & \alpha_{\m{M}} \big(|\mw{E}| - |\m{V}| - |\m{V}_A|\big) + \beta_{\m{M}} |\m{V} |\\
+& = & \alpha_{\mathcal{M}}\big(|\mw{E}| - |\m{V}_A|\big) + (\beta_{\mathcal{M}} - \alpha_{\mathcal{M}}) |\m{V}|
+\end{eqnarray*}
+%where $\alpha_{\mathcal{M}} = \sum_{l \in \mathcal{M}}\alpha_l$ and $\beta_{\mathcal{M}} = \sum_{l \in \mathcal{M}} \beta_l$ are the overall aggregation and update costs of $\mathcal{M}$, respectively.
+%The last equation is because $\mathcal{\widehat{G}}$ is equivalent to the ordinary graph $\mathcal{G}$ only if $\mathcal{\widehat{V}}_D = \mathcal{V}$.
+Since $|\mathcal{V}|$ is determined by the input graph, our goal is to find a \xg minimizing $\big(|\mathcal{\widehat{E}}| -  |\mathcal{\widehat{V}}_A| \big)$.
+
+\subsection{Search Algorithm}
+\label{subsec:greedy}
+\begin{algorithm}[t]
+%\footnotesize
+\caption{A \xg search algorithm to automatically find an equivalent \xg for a GNN-graph with optimized runtime performance.
+\textproc{Redundancy}($v_1, v_2, \mw{E}$) calculates the number of nodes aggregating both $v_1$ and $v_2$.
+$\m{V}_A$ is the set of aggregation nodes in a \xg. 
+Recall that $\er{cover}(u)$ is an ordered list for sequential \textproc{Aggregate} (see Equation~\ref{eqn2}).}
+\label{alg3}
+\begin{algorithmic}[1]
+\State {\bf Input: } A GNN-graph $\mathcal{G}$ and a GNN model $\m{M}$.
+%the maximum number of aggregation nodes $\er{capacity}$, the maximum depth of aggregation nodes $\er{depth}$.
+\State {\bf Output: } An equivalent \xg 
+\State 
+\Function{Redundancy}{$v_1, v_2, \mw{E}$}
+\If {$\m{M}$ has a set \textproc{Aggregate}}
+\State $\m{R} = \{ u | (v_1, u) \in \mw{E} \wedge (v_2, u) \in \mw{E}\}$
+\Else
+\State $\m{R} = \{ u | v_1 = \er{cover}(u)[1] \wedge v_2 = \er{cover}(u)[2]\}$
+\EndIf
+\State \textbf{return} $|\mathcal{R}|$
+\EndFunction
+%\Function{Depth}{$v$}
+%\State \textbf{return} $\max\{\Call{Depth}{u} + 1 | (u, v) \in \mw{E}\}$
+%\EndFunction
+\State
+\State $\m{V}_A \leftarrow \emptyset, \mw{E} \leftarrow \mathcal{E}$
+\While {$|\m{V}_A| < \er{capacity}$}
+\State $(v_1, v_2) = \argmax_{v_1, v_2}$ \Call{Redundancy}{$v_1, v_2, \mw{E}$}
+\If {$\Call{Redundancy}{v_1, v_2, \mw{E}} > 1$}
+\State $\m{V}_I \leftarrow \m{V}_I + \{w\}$ \Comment{where $w$ is a new node}
+\State $\mw{E} \leftarrow \mw{E} + (v_1, w) + (v_2, w)$
+\For {$u \in \m{V}$}
+\If {$(v_1, u) \in \mw{E} \wedge (v_2, u) \in \mw{E}$}
+\State $\mw{E} \leftarrow \mw{E} - (v_1, u) - (v_2, u) + (w, u)$
+\EndIf
+\EndFor
+\EndIf
+\EndWhile
+\State {\bf return } $(\m{V}_A, \mw{E})$
+\end{algorithmic}
+\end{algorithm}
+
+%\begin{figure}
+%\centering
+%\subfloat[Input graph.]{
+%\includegraphics[scale=0.3]{figures/graph_example.pdf}
+%}
+%\\
+%\subfloat[Initial \xg with 9 binary aggregations.]{
+%\includegraphics[scale=0.3]{figures/step0.pdf}
+%}
+%\\
+%\vspace{-2mm}
+%\subfloat[Updated \xg with 7 binary aggregations.]{
+%\includegraphics[scale=0.3]{figures/step1.pdf}
+%}
+%\\
+%\vspace{-2mm}
+%\subfloat[Updated \xg with 6 binary aggregations.]{
+%\includegraphics[scale=0.3]{figures/step2.pdf}
+%}
+%\\
+%\vspace{-2mm}
+%\subfloat[Final \xg with 5 binary aggregations.]{
+%\includegraphics[scale=0.3]{figures/step3.pdf}
+%}
+%\vspace{-2mm}
+%\caption{Iteratively constructing an \xg with the graph search algorithm. nodes with a red box indicate the chosen nodes at each iteration.}
+%\label{fig:greedy}
+%\end{figure}
+%\ZJ{Say why it is hard to find an optimal solution}
+We propose a \xg search algorithm that finds a globally optimal \xg for GNNs with sequential \textproc{Aggregate} and a $(1-1/e)$-approximation of globally optimal \xgs for GNNs with set \textproc{Aggregate}.
+In addition to an input GNN-graph and a GNN model, the search algorithm also takes a parameter {\em capacity}, defining an upper limit on the number of intermediate aggregation nodes (i.e., $|\m{V}_A|$) in the \xg.
+%that specify the maximum capacity and depth of all aggregation nodes in the $\m{V}_A$, respectively.
+%The depth of a node $v$ is the length of the longest path from a node to $v$, which describes the latency to compute node $v$ since all nodes along the longest path must be computed sequentially.
+%The capacity is an upper limit on $|\m{V}_A|$.
+
+Algorithm~\ref{alg3} shows the pseudocode of the \xg search algorithm.
+We start with an input GNN-graph, which is a special case of \xgs, and iteratively insert aggregation nodes into the current \xg to merge highly redundant aggregations and remove unnecessary computation and data transfers.
+
+In each iteration, we find a binary aggregation with the highest redundancy and insert a new aggregation node $w$ in $\m{V}_A$ to represent the binary aggregation results (line 15-18).
+%a pair of nodes $(v_1, v_2)$ with the highest redundancy and introduces a new node $w$ to represent the aggregation of $v_1$ and $v_2$.
+All nodes containing this binary aggregation can directly use the output of $w$ without recomputing the aggregation (line 19-23).
+The \xg search algorithm iteratively reduces the computation costs of the \xg by eliminating the most redundant binary aggregation in each iteration.
+%All nodes that originally includes both $v_1$ and $v_2$ as in-neighbors now contains $w$ as an input. 
+%This eliminates the redundant computation for aggregating $v_1$ and $v_2$ multiple times for different nodes.
+%Figure~\ref{fig:greedy} demonstrates how the graph search algorithm iteratively generates an \xg for the ordinary graph in Figure~\ref{}.
+
+For any GNN model with a sequential \textproc{Aggregate}, Theorem~\ref{thm3} shows that the \xg search algorithm is able to find an equivalent \xg with globally optimal computation cost. We prove the theorem in Appendix.
+
+\begin{theorem}
+\label{thm3}
+For any GNN-graph $\m{G}$ and any GNN model $\m{M}$ with a sequential \textproc{Aggregate}, Algorithm~\ref{alg3} returns an equivalent \xg with globally minimized cost as long as 
+$\er{capacity}\geq |\m{E}|$, where $|\m{E}|$ is the number of edges in $\m{G}$.
+%For any \xg $\mw{G}$ that is equivalent to $\mathcal{G}$, $\er{cost}(\mw{G}_0) \leq \er{cost}(\mw{G}_0)$.
+\end{theorem}
+
+%We prove the correctness of Theorem~\ref{thm3} and the graph search algorithm in Appendix. 
+%Theorem~\ref{thm3} shows that the graph search algorithm can find optimal \xgs for GNN models with sequential \textproc{Aggregate}.
+
+For GNN models with set \textproc{Aggregate}, Theorem~\ref{thm4} shows that the \xg search algorithm can find an equivalent \xg that is within a $(1-1/e)$-approximation of the globally optimal \xgs. We prove the theorem in Appendix.
+\begin{theorem}
+\label{thm4}
+For any GNN-graph $\m{G}$ and any GNN model $\m{M}$ with a set \textproc{Aggregate}, Algorithm~\ref{alg3} gives a $(1-1/e)$-approximation of globally optimal \xgs under the cost model. More specifically, assuming $\mw{G}$ is the \xg returned by Algorithm~\ref{alg3} and $\mw{G}_o$ is a globally optimal \xg under the $\er{capacity}$ constraint, we have
+$$
+\er{cost}(\m{M}, \mw{G}) \leq \frac{1}{e} \er{cost}(\m{M}, \m{G}) + \frac{e-1}{e} \er{cost}(\m{M}, \mw{G}_o)
+$$
+\end{theorem}
+Empirically, the \xg search algorithm finds highly optimized \xgs for real-world graph datasets, reducing the number of aggregations by up to 6.3$\times$.
+%{\bf Time Complexity.} 
+
+%\begin{table}
+%\caption{Time complexity of Algorithm~\ref{alg3}. |V| and |E| denote the number of nodes and edges in the input ordinary graph, respectively.}
+%\begin{tabular}{|l|l|}
+%\hline
+%{\bf Step} & {\bf Time Complexity} \\
+%\hline
+%Initialize the heap structure & $O(|\mathcal{V}|^2)$ \\
+%\hline
+%Query the binary aggregations & \multirow{2}{*}{$O(\er{capacity} \times \log|\mathcal{V}|)$} \\
+%with highest redundancy & \\
+%\hline
+%Update the heap structure & $O(|\mathcal{E}| \log|\mathcal{V}|)$\\
+%\hline
+%\hline
+%Overall & $O(|\mathcal{V}|^2 + |\mathcal{E}| \log|\mathcal{V}|)$\\
+%\hline
+%\end{tabular}
+%\end{table}
+{\bf Time complexity.} Finding the binary aggregation with the highest redundancy in each iteration could be computationally very expensive, since a brute-force approach requires enumerating all node pairs.
+We use a {\em heap} to maintain the redundancy score of each potential node pair and only update the heap when we add and remove edges in $\mw{E}$.
+%Table~\ref{tab:} shows the time complexity of the graph search algorithm.
+Since the depth of the heap is at most $O(\log(|\m{V}_S| + |\m{V}_A|))$~\footnote{This is because there can be at most $(|\m{V}_S| + |\m{V}_A|)^2$ node pairs.}, querying the most redundant binary aggregation and modifying $\mw{E}$ each takes $O(\log(|\m{V}_S| + |\m{V}_A|))$ time. 
+%The total number of queries to the heap is $\er{capacity}$, since each query results in one node added into $\m{V}_I$.
+%Meanwhile, the total number of updates to the heap is $O(|\mw{E}|)$.
+%Therefore, the overall time complexity of the graph search algorithm is $O((\er{capacity} + |\mw{E}|)\times \log(|\m{V}_S| + |\m{V}_A|)$.
+%The greedy algorithm achieves high efficiency on real-world graphs. 
+For all the graph datasets used in our experiments, the \xg search algorithm takes at most 15 minutes to finish on a commodity Intel CPU.
+
+In addition to reducing computation costs, the \xgs discovered by the \xg search algorithm have two other advantages.
+
+{\bf Fast GPU implementation.} Most real-world graphs have non-uniform edge distributions, leading to unbalanced computation workload among different nodes.
+Previous work~\cite{NGra, Lux} has proposed different strategies to explicitly balance workload distributions among nodes at the cost of synchronization overhead among GPU threads.
+In contrast, our \xg search algorithm produces \xgs whose aggregation nodes (i.e., $\m{V}_A$) have uniform edge distributions (each has exactly two in-edges).
+This eliminates any synchronization overheads to balance workload among aggregation nodes and results in faster GPU implementations.
+
+{\bf High reusability.} For a given GNN-graph, the \xg discovered by the search algorithm only depends on the capacity and aggregation type (set or sequential \textproc{Aggregate}) and is agnostic to any particular GNN models.
+This allows us to only run the search algorithm once for each aggregation type, and any GNN models can directly reuse the generated \xgs without any additional analysis on the graph.

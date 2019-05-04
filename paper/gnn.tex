@@ -1,0 +1,138 @@
+\documentclass{article}
+
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{listings}
+\usepackage{pifont}
+\usepackage{tikz}
+\usepackage{subfig}
+\usepackage{multirow}
+\usepackage{pgfplots}
+\usepackage{booktabs}
+\usepackage{dcolumn}
+\usepackage{cancel}
+\usepackage{ifmtarg}
+\usepackage{verbatim}
+\usepackage{graphicx}
+\usepackage{chngpage}
+\usepackage{xspace}
+%\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{balance}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{cleveref}
+\usepackage{threeparttable}
+
+\usepackage{microtype}
+\usepackage{booktabs} % for professional tables
+
+
+% Attempt to make hyperref and algorithmic work together better:
+\newcommand{\theHalgorithm}{\arabic{algorithm}} 
+\newcommand{\er}[1]{\mbox{\rm\em #1}}
+\newcommand{\sys}{LuxGNN\xspace}
+\newcommand{\xg}{HAG\xspace}
+\newcommand{\xgs}{HAGs\xspace}
+\newcommand{\ZJ}[1] {\textcolor{blue}{[ZJ: #1]}}
+\newcommand{\mw}[1] {\mathcal{\widehat{#1}}}
+\newcommand{\m}[1] {\mathcal{#1}}
+\newtheorem{theorem}{Theorem}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\newcommand{\jure}[1]{{\color{magenta}[[#1]]}}
+\newcommand{\hide}[1]{}
+
+% Use the following line for the initial blind version submitted for review:
+\usepackage{icml2019}
+
+% If accepted, instead use the following line for the camera-ready submission:
+%\usepackage[accepted]{icml2019}
+
+% The \icmltitle you define below is probably too long as a header.
+% Therefore, a short form for the running title is supplied here:
+
+\icmltitlerunning{Redundancy-Free Computation Graphs for Graph Neural Networks}
+
+\begin{document}
+
+\twocolumn[
+\icmltitle{Redundancy-Free Computation Graphs for Graph Neural Networks}
+
+% It is OKAY to include author information, even for blind
+% submissions: the style file will automatically remove it for you
+% unless you've provided the [accepted] option to the icml2019
+% package.
+
+% List of affiliations: The first argument should be a (short)
+% identifier you will use later to specify author affiliations
+% Academic affiliations should list Department, University, City, Region, Country
+% Industry affiliations should list Company, City, Region, Country
+
+% You can specify symbols, otherwise they are numbered in order.
+% Ideally, you should not use this facility. Affiliations will be numbered
+% in order of appearance and this is the preferred way.
+\icmlsetsymbol{equal}{*}
+
+\begin{icmlauthorlist}
+\icmlauthor{aaa}{to}
+\end{icmlauthorlist}
+
+\icmlaffiliation{to}{nowhere}
+
+\icmlcorrespondingauthor{aaa}{c.vvvvv@googol.com}
+
+% You may provide any keywords that you
+% find helpful for describing your paper; these are used to populate
+% the "keywords" metadata in the PDF but will not be shown in the document
+\icmlkeywords{Machine Learning, ICML}
+
+\vskip 0.3in
+]
+
+% this must go after the closing bracket ] following \twocolumn[ ...
+
+% This command actually creates the footnote in the first column
+% listing the affiliations and the copyright notice.
+% The command takes one argument, which is text to display at the start of the footnote.
+% The \icmlEqualContribution command is standard text for equal contribution.
+% Remove it (just {}) if you do not need this facility.
+
+\printAffiliationsAndNotice{}  % leave blank if no need to mention equal contribution
+%\printAffiliationsAndNotice{\icmlEqualContribution} % otherwise use the standard text.
+
+\begin{abstract}
+Graph Neural Networks (GNNs) have revolutionized machine learning on graphs.
+GNNs are based on repeated aggregations of information across a node's neighbors, and because many neighbors are shared between different nodes, this leads to many repeated and inefficient computations.
+%means that many computations are repeated and inefficient.
+%
+We propose {\em \xg}, a new GNN graph representation that explicitly avoids repeated computations by managing intermediate aggregation results hierarchically, which reduces redundant operations and eliminates unnecessary data transfers in GNN training.
+We introduce a cost model to quantitatively evaluate the runtime performance of different \xgs and use a novel \xg search algorithm to find optimized \xgs.
+%We introduce a novel cost model and the develop an algorithm that provably finds the minimum-cost GNN computation graph.
+%
+Experiments show that the \xg representation significantly outperforms the standard GNN graph representation by increasing the end-to-end training throughput up to 2.8$\times$ and reducing the aggregations and data transfers in GNN training by up to 6.3$\times$ and 5.6$\times$, while maintaining the original model accuracy.
+\hide{ %% Jure
+Existing graph neural networks (GNNs) use ordinary graph representation that directly connects each vertex in a graph with its neighbors.
+Each vertex computes its activations by aggregating its neighbors independently, resulting in redundant computation and unnecessary data transfers.
+In this paper, we propose \xg, a new graph representation that explicitly manages intermediate aggregation results hierarchically, which reduces redundant computation and eliminates unnecessary data transfers.
+We introduce a cost model to quantitatively evaluate the runtime performance of different \xgs and use novel graph search algorithm to find highly optimized \xgs under the cost model.
+Our evaluation shows that the \xg representation significantly outperforms the standard graph representations by reducing computation costs and memory accesses for neighborhood aggregations by up to 84\% and YY\%, and increasing end-to-end training throughput by up to 1.9$\times$, while maintaining the original model accuracy.
+}
+\end{abstract}
+
+\input{intro}
+\input{model}
+\input{agraph}
+\input{method}
+\input{impl.tex}
+\input{exp}
+\input{related}
+\section{Conclusion}
+We have introduced \xg, a new GNN graph representation that explicitly avoids redundant computation in GNNs by managing intermediate aggregation results hierarchically.
+We propose a cost model to quantitatively evaluate the runtime performance of different \xgs and use a \xg search algorithm to find optimized \xgs under the cost model.
+Our experiments show that \xgs significantly outperform existing GNN-graphs by improving the end-to-end training performance and reducing the aggregations and data transfers in GNN training.
+%We are planning to release our implementations upon acceptance to facilitate future research.
+\bibliography{bibliography}
+\bibliographystyle{icml2019}
+
+\end{document}

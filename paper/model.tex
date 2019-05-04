@@ -1,0 +1,55 @@
+\section{Graph Neural Network Abstraction}
+\begin{algorithm}[t]
+\caption{An abstraction for GNNs. $\mathcal{V}$ is the set of nodes in an input graph, and $\mathcal{N}(v)$ denotes the set of neighbors for node $v$.}
+\label{alg1}
+\begin{algorithmic}[1]
+\State $h^{(0)}_v = x_v, \forall v \in \mathcal{V}$
+\For {$k= 1 \textrm{ to } K$}
+\For {$v \in {\mathcal{V}}$}
+\State $a^{(k)}_v \leftarrow \Call{Aggregate}{\{h^{(k-1)}_u | u \in \mathcal{N}(v)\}}$
+\State $h^{(k)}_v \leftarrow \Call{Update}{a^{(k)}_v, h^{(k-1)}_v}$
+\EndFor
+\EndFor
+\State
+\State {\bf Goal:} minimize $\mathcal{L}(\{h^{(K)}_v | v \in \mathcal{V}\})$
+\end{algorithmic}
+\end{algorithm}
+A GNN takes an input graph and node features as inputs and iteratively learns representations for individual nodes over the entire graph through a number of GNN layers.
+%Each GNN layer consists of two steps.
+Algorithm~\ref{alg1} shows an abstraction for GNNs: $h^{(k)}_v$ is the learned activations of node $v$ at layer $k$, and we initialize $h^{(0)}_v$ with input node features $x_v$.
+At the $k$-th layer, $a^{(k)}_v$ denotes the aggregated activations of $v$'s neighbors, which is combined with $h^{(k-1)}_v$ to compute an updated activation $h^{(k)}_v$.
+The learned node activations of the final layer (i.e., $h^{(K)}_v$) are used for predictions, and a GNN model generally minimizes a loss function $\mathcal{L}$ that takes the final node activations as inputs (line 9).
+
+\begin{table*}[ht]
+\caption{Existing GNNs described in our \xg abstraction. GraphSAGE-P and GraphSAGE-LSTM are the pooling and LSTM variants of GraphSAGE, respectively. $\sigma$ and $\er{max}$ indicate element-wise non-linear activation and max functions.
+For sequential \textproc{Aggregate}, $v_i$ denotes the $i$-th in-neighbor of node $v$.
+}
+\label{tab:gnns}
+\begin{threeparttable}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{lll}
+\hline
+{\bf GNN} & {\bf $\textproc{Aggregate}(\{h^{(k-1)}_u | u \in \mathcal{N}(v)\})$} & {\bf $\textproc{Update}(a^{(k)}_v, h^{(k-1)}_v)$}\\
+\hline
+\multicolumn{3}{c}{Set \textproc{Aggregate}} \\
+\hline
+GCN~\cite{GCN} & $a^{(k)}_v = \sum_{u\in\mathcal{N}(v)}{h^{(k-1)}_u} $ & $h^{(k)}_v = \sigma(W^{(k)} \cdot \frac{a^{(k)}_v + h^{(k-1)}_v}{|\mathcal{N}(v)| + 1})$ \\
+GIN~\cite{GIN} & $a^{(k)}_v = \sum_{u\in\mathcal{N}(v)}{h^{(k-1)}_u} $ & $h^{(k)}_v = \sigma\big(W \cdot \Big((1 + \epsilon^{(k)})h^{(k-1)}_v + a^{(k)}_v\big) \Big)$ \\
+GraphSAGE-P~\cite{GraphSAGE} & $a^{(k)}_v = {\er{max}}_{u\in\mathcal{N}(v)}\{\sigma(W^{(k)}_1 \cdot h^{(k-1)}_u)\}$ & $h^{(k)}_v = \sigma\big(W^{(k)}_2 \cdot (a^{(k)}, h^{(k-1)}_v)\big)$ \\
+%GraphSAGE~\cite{GraphSAGE} & $a^{(k)}_v = \frac{1}{|\mathcal{N}(v)|}\sum_{u\in\mathcal{N}(v)}{h^{(k-1)}_u}$ & $h^{(k)}_v = \sigma\big(W^{(k)} \cdot (a^{(k)}_v, h^{(k-1)}_v)\big)$\\
+%\hline
+%\multicolumn{3}{c}{Idempotent \textproc{Aggregate}} \\
+%\hline
+%GCN-P~\cite{GCN} & $a^{(k)}_v = {\er{max}}_{u\in\mathcal{N}(v)}\{h^{(k-1)}_u\} $ & $h^{(k)}_v = \sigma\big(W^{(k)} \cdot (a^{(k)}_v | h^{(k-1)}_v)\big)$ \\
+\hline
+\multicolumn{3}{c}{Sequential \textproc{Aggregate}} \\
+\hline
+GraphSAGE-LSTM~\cite{GraphSAGE} & $a^{(k)}_v = \er{LSTM}(h^{(k-1)}_{v_1},...,h^{(k-1)}_{v_\mathcal{N}})$ & $h^{(k)}_v = \sigma\big(W^{(k)} \cdot (a^{(k)}_v, h^{(k-1)}_v)\big)$\\
+$N$-ary Tree-LSTM~\cite{TreeLSTM} & $a^{(k)}_v = \er{Tree-LSTM-Agg}(h^{(k-1)}_{v_1},...,h^{(k-1)}_{v_\mathcal{N}})$ & $h^{(k)}_v = \er{Tree-LSTM-Update}(a^{(k)}_v, h^{(k-1)}_v)$\\
+\hline
+\end{tabular}
+}
+\end{threeparttable}
+\end{table*}
+
+

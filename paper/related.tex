@@ -1,0 +1,12 @@
+\section{Related Work}
+\label{sec:related}
+{\bf Graph neural networks} are used to solve various real-world tasks with relational structures~\cite{CNLMF, GCN, GraphSAGE, DiffPool, GIN}.
+This paper solves an orthogonal problem: how to optimize GNN efficiency while maintaining network accuracy.
+The \xg representation is agnostic to any particular GNN model and provides a general approach that can be automatically applied to eliminate redundancy for arbitrary GNN models.
+
+{\bf Computation reduction in neural networks.} A number of techniques have been proposed recently to reduce computation in neural networks. 
+For example, ~\citet{Han1} presents a weight pruning algorithm to iteratively remove weak connections in a network. 
+As another example, ~\citet{Han2} proposes a deep compression technique to reduce network computation by training on low precision weights.
+These techniques reduce network computation at the cost of modifying computation in the network, resulting in decreased network accuracy (as reported in these papers).
+By contrast, in this paper, we propose a new GNN representation that accelerates GNN training by eliminating redundant computation in GNN-graphs while maintaining the original computation and network accuracy.
+

@@ -1,0 +1,86 @@
+\section{Introduction}
+\label{sec:intro}
+Graph neural networks (GNNs) have shown state-of-the-art performance across a number of tasks with graph structured data, such as social networks, molecule networks, and webpage graphs~\cite{GCN, GraphSAGE, DiffPool, GIN}. 
+GNNs use a recursive neighborhood aggregation scheme --- in a GNN layer, each node aggregates its neighbors' activations from the previous GNN layer and uses the aggregated value to update its own activations.
+The activations of the final GNN layer are used for prediction tasks, such as node classification, graph classification, or link prediction.
+
+Due to the clustering nature of real-world graphs, different nodes in a graph may share a number of common neighbors.
+For example, in webpage graphs, different websites under the same domain generally have a number of common links (i.e., neighbors).
+As another example, in recommender systems, users in the same group may have interests in common items.
+
+Existing GNNs define computation in each GNN layer with a GNN {\em computation graph} (GNN-graph). 
+For each node $v$ in the input graph, the GNN-graph includes an individual tree structure to describe how to compute the node's activations by aggregating the previous-layer activations of its neighbors.
+%Existing GNNs define computation in neighborhood aggregations with a GNN computation graph that includes an individual aggregation operator to aggregate each node's neighbors.
+%%To perform neighborhood aggregations in a GNN layer, existing GNNs use a {\em standard} format for computation graphs with a number of individual aggregation operators, each of which aggregates the neighbors of a vertex in an input graph.
+%Figure~\ref{fig:intro}a shows an example input graph. 
+Figure~\ref{fig:intro}b shows the GNN-graph representation of the input graph in Figure~\ref{fig:intro}a;
+for example, for node $A$, its neighbor's activations $h^{(k-1)}_B$, $h^{(k-1)}_C$ and $h^{(k-1)}_D$ from the layer $k-1$ are aggregated to compute new activations $h^{(k)}_A$ for the layer $k$ (see the top portion of Figure~\ref{fig:intro}b).
+The new activations of the other nodes are computed similarly using the previous activations of their neighbors.
+Notice that this results in redundant computation and data transfers. In this example, both $\{A,B\}$ and $\{C,D\}$ are aggregated twice.
+In practice, the level of redundancy is much greater in real graphs with many more nodes and multiple layers.
+
+%Figure~\ref{fig:intro}b shows an example standard computation graph.
+%This approach performs neighborhood aggregations independently on each vertex, resulting in redundant computation and data transfers since aggregations on the shared subsets of vertices are performed multiple times (e.g., both $\{A, B\}$ and $\{C, D\}$ are aggregated twice in Figure~\ref{fig:intro}b).
+
+\begin{figure*}
+    \centering
+    \includegraphics[scale=0.5]{figures/intro3.pdf}
+    \caption{Comparison between a GNN-graph and an equivalent \xg.
+    (a) Input graph; (b) 1-layer GNN-graph; (c) \xg that avoids redundant computation.
+    The GNN-graph computes new activations $h^{(k)}_v$ by aggregating the previous-layer activations of its network neighbors.
+    Because nodes in the input graph share common neighbors, the GNN-graph performs redundant computation (e.g., both $\{A, B\}$ and $\{C, D\}$ are aggregated twice). By identifying common computational patterns, the \xg avoids repeated computation.
+    }
+    \label{fig:intro}
+\end{figure*}
+
+In this paper, we propose a new GNN representation called {\em Hierarchically Aggregated computation Graphs} (\xgs).
+%, which eliminate redundant computation and unnecessary data transfers in GNN computation graphs by hierarchically managing and reusing intermediate aggregation results. 
+Figure~\ref{fig:intro}c shows one possible \xg for the input graph in Figure~\ref{fig:intro}a. %, which computes neighborhood aggregations hierarchically to reuse intermediate aggregations.
+%Compared to standard computation graphs, \xgs 
+\xgs are functionally equivalent to standard GNN-graphs (produce the same output), but hierarchically combine redundant computation and remove unnecessary data transfers.
+%, while preserving the exact same output as the standard computation graphs.
+Note that a \xg is agnostic to any particular GNN model and can be directly used to eliminate redundancy for arbitrary GNN computation graphs.
+%a new graph representation for GNNs called {\em hierarchical aggregation graphs} (\xgs), which eliminate redundant computation and reduce unnecessary data accesses in GNNs by reusing intermediate aggregation results hierarchically.
+%\xg includes a number of intermediate {\em aggregation vertices}, each of which represents the aggregation result of a specific subset of vertices and can be reused for the neighborhood aggregations of multiple vertices.
+
+%Compared to the original graph representation that directly link each vertex to all neighbors, our HSG representation eliminates redundant aggregations on XXX and reduces memory accesses by reusing intermediate subset vertices.
+
+For a GNN-graph, there exist numerous equivalent \xgs with different aggregation hierarchies and performance.
+%Our goal is to find a \xg with optimized runtime performance while preserving original model accuracy. 
+%To formalize the problem, w
+We introduce a cost model to quantitatively evaluate the runtime performance of different \xgs and develop a novel \xg search algorithm to automatically find optimized \xgs.
+
+Theoretically, we prove that: (1) for GNNs whose neighborhood aggregations require a specific ordering on a node's neighbors, the \xg search algorithm can find a globally optimal \xg under the cost model; and (2) for other GNNs, the algorithm provides a $(1-1/e)$-approximation of globally optimal \xgs under the cost model.
+Empirically, the \xg search algorithm finds highly optimized \xgs for real-world graph datasets, reducing the number of aggregations in GNN-graphs by up to 6.3$\times$.
+%For GNN models whose aggregations require a specific ordering on a vertex's neighbors, the greedy algorithm is able to find a globally optimal \xg under the cost model.
+%For other GNN models, our algorithm has no optimality guarantee but empirically reduces computation costs of neighborhood aggregations by up to 6.7$\times$.
+
+%Existing GNN implementations only achieve suboptimal runtime performance.
+Existing deep learning frameworks such as TensorFlow and PyTorch train GNNs by translating GNN-graphs to sparse matrices and performing matrix operations.
+Besides being less efficient than \xgs, this approach does not consider graph structures in GNNs and disables a number of critical system optimizations for graphs (see Section~\ref{sec:impl}).
+
+Based on the above insights, we implemented \xg in a GNN framework we call \sys.
+The key difference between \sys and existing frameworks is that \sys explicitly manages graph structures in GNNs and reduces GNN training to a number of graph processing operations. This allows \sys to directly benefit from system optimizations for graphs.
+
+Our \xg abstraction maintains predictive performance of GNNs but leads to much faster training and inference. We evaluate the performance of \sys on five real-world graph datasets and along three dimensions: (a) end-to-end training performance; (b) number of aggregations; and (c) amount of data movement in GNN training.
+%We evaluate the runtime performance of \sys with \xgs on five real-world graph datasets including social networks~\cite{GraphSAGE}, molecule networks~\cite{BZR, PPI}, and scientific collaboration datasets~\cite{COLLAB}.
+Experiments show that \sys significantly outperforms state-of-the-art deep learning frameworks for GNN training, with end-to-end speedups ranging from 4.6$\times$ to 15.3$\times$.
+%that supports training arbitrary GNNs on \xgs and significantly outperforms state-of-the-art deep learning frameworks on five real-world graph datasets, with speedups ranging from 4.6$\times$ to 15.3$\times$.
+%The performance improvement over the baselines is twofold.
+First, \sys enables a number of system optimizations for graphs by reducing GNN training to a sequence of graph processing operations, which increases the training throughput by 3.7-5.5$\times$. Second, \sys uses the \xg representation to eliminate redundant aggregations and data movement in GNN training, which further increases the training throughput by up to 2.8$\times$.
+In addition, compared to GNN-graphs, \xgs reduce the number of aggregations and the amount of data transfers in GNN training by up to 6.3$\times$ and $5.6\times$, respectively.
+%We have implemented a fast GNN framework that supports training arbitrary GNN models on \xgs. 
+%\ZJ{talk about performance comparison between our framework and the baselines.}
+%significantly outperforms existing GNN frameworks with speedups ranging from 6.2$\times$ to 8.7$\times$.
+
+%Compared to standard computation graphs, \xgs improves the training throughput of GNN models by up to 2.3$\times$. In addition, \xgs can reduce the computation costs and data transfers for neighborhood aggregations by up to 6.7$\times$ and 2.2$\times$, respectively.
+%\ZJ{\xgs allow more efficient graph implementation. }
+
+To summarize, our contributions are: 
+\begin{itemize}
+    \setlength\itemsep{0em}
+    \item We propose \xg, a new GNN graph representation to eliminate redundant computation and data transfers in GNN training.
+    \item We define a cost model to quantitatively evaluate the runtime performance of different \xgs and develop a \xg search algorithm to automatically find optimized \xgs.
+    We prove that the \xg search algorithm provides at least a $(1-1/e)$-approximation of globally optimal \xgs under the cost model.
+    \item We show that \xgs significantly outperform GNN-graphs by increasing GNN training throughput by up to 2.8$\times$ and reducing the aggregations and data transfers in GNN training by up to 6.3$\times$ and 5.6$\times$, respectively.
+\end{itemize}

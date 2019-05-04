@@ -1,0 +1,144 @@
+\section{Experiments}
+\label{sec:exp}
+\begin{table}
+\caption{Datasets used in the experiments.}
+\label{tab:datasets}
+\resizebox{\columnwidth}{!}{
+\begin{tabular}{|l|l|l|l|}
+\hline
+{\bf Name} & {\bf \# Nodes} & {\bf \# Edges} \\
+\hline
+\multicolumn{3}{|c|}{Node Classification} \\
+\hline
+BZR~\cite{BZR} & 6,519 & 137,734\\
+%SST & & & Node Classification \\
+PPI~\cite{PPI} & 56,944 & 1,612,348\\
+REDDIT~\cite{GraphSAGE} & 232,965 & 57,307,946\\
+\hline
+\multicolumn{3}{|c|}{Graph Classification}\\
+\hline
+IMDB~\cite{COLLAB} & 19,502 & 197,806\\
+COLLAB~\cite{COLLAB} & 372,474 & 12,288,900\\
+\hline
+\end{tabular}
+}
+\end{table}
+
+Our \xg abstraction maintains predictive performance of GNNs but leads to much faster runtime performance. 
+This section evaluates the runtime performance of \xgs on five real-world graph datasets.
+We evaluate \xgs along three dimensions: (a) end-to-end training performance; (b) number of aggregations; and (c) number of data transfers in GNN training.
+
+%We perform all experiments in our framework due to its significant better performance than other frameworks (see Figure~\ref{fig:compare_impl}). We compare the runtime performance of \xgs with ordinary graphs on the following GNN models.
+%{\bf GNN models.} 
+%We compare the performance of hierarchical aggregation graphs with ordinary graphs on all GNN models in Table~\ref{tab:gnns}. 
+
+{\bf Datasets.} %We evaluate the performance of \xg on five real-world datasets.
+Table~\ref{tab:datasets} summarizes the datasets used in our experiments.
+BZR is a chemical compound dataset, where each node is an atom and an edge is a chemical bond between two atoms~\cite{BZR}.
+PPI contains a number of protein-protein interaction graphs, each of which corresponds to a different human tissue~\cite{PPI}.
+REDDIT is an online discussion forum dataset, with each node being a Reddit post and each edge being commenting relations. For both PPI and REDDIT, we directly use prepossessed data from~\citet{GraphSAGE}.
+IMDB and COLLAB are two collaboration datasets for graph classification~\cite{COLLAB}.
+IMDB is a movie collaboration dataset, with each node representing an actor/actress, while COLLAB is a scientific collaboration dataset, with each node representing a researcher.
+
+%{\bf Baselines.} We compare the runtime performance of \xgs with TensorFlow and DGL that uses sparse matrix operations to perform GNN operations on standard computation graphs. 
+
+{\bf Experimental setup.} All experiments were performed on a GPU machine with a Intel 10-core E5-2600 CPU, 256G main memory, and one NVIDIA Tesla V100 GPU.
+Following previous work~\cite{GCN, GraphSAGE}, each GNN model has two GNN layers and one SoftMax layer. For graph classification datasets, each GNN model also includes a mean-pooling layer to gather graph-level activations.
+%We set the number of hidden dimensions to 15.
+For all experiments, we set the maximum \er{capacity} of $|\m{V}_A|$ in a \xg to be $|\m{V}| / 4$, which achieves high performance on real-world graphs in the experiments.
+Section~\ref{subsec:eval_para} studies how different capacities affect the runtime performance of \xgs.
+In all experiments, the memory overhead to save intermediate aggregation results is negligible: intermediate nodes consume 6MB of memory in the worst case while GNN training requires more than 7GB of memory ($\sim$0.1\% memory overhead). 
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[scale=0.35]{figures/training_throughputs.pdf}
+    %\vspace{-5mm}
+    \caption{End-to-end performance comparison among TensorFlow, DGL with the PyTorch backend, \sys with GNN-graphs, and \sys with \xgs. 
+    We measure the end-to-end training throughputs on a 2-layer GCN model with 16 hidden dimensions in each layer.
+    The training throughputs are normalized by the TensorFlow numbers.}
+    \label{fig:compare_training}
+\end{figure}
+
+\begin{figure}[t]
+    \centering
+    \subfloat[Set Aggregations.]{
+    \includegraphics[scale=0.35]{figures/compare_unordered_aggregation.pdf}
+    }
+    \\
+    \subfloat[Sequential Aggregations.]{
+    \includegraphics[scale=0.35]{figures/compare_seq_aggregation.pdf}
+    }
+    \vspace{-1mm}
+    \caption{Comparing the number of aggregations and amount of data transfers between GPU threads to perform aggregations (lower is better). 
+    %Computation costs and data transfers to perform neighborhood aggregations on various computation graphs (lower is better).
+    %The computation costs are measured by the numbers of binary aggregations. 
+    The y-axes are normalized by GNN-graphs, and the last column in each figure is the geometry mean over all datasets.
+    }
+    %Runtime performance comparison between ordinary graphs and \xgs on different types of aggregations. 
+    %The y-axis shows the relative numbers of binary aggregations involved in each graph representation.
+    \label{fig:comapre_aggregation}
+\end{figure}
+
+\subsection{End-to-End Performance}
+\label{subsec:eval_end}
+We first compare the end-to-end training performance between GNN-graphs and \xgs.
+For GNN-graphs, we also ran experiments on TensorFlow (v1.12) and DGL with the PyTorch backend (v1.0) to compare the time it takes to complete one epoch of training using different frameworks.
+
+Figure~\ref{fig:compare_training} shows the comparison results.
+By using the same GNN-graphs, \sys outperforms TensorFlow and DGL with the PyTorch backend by 3.7-5.5$\times$.
+The performance improvement is achieved by a number of critical system optimizations enabled in \sys, as discussed in Section~\ref{sec:impl}.
+
+Compared to directly training GNN-graphs in \sys, \xgs can further improve the training throughput by up to 2.8$\times$, while maintaining the same network accuracy.
+We note this improvement is achieved completely automatically, and computing a \xg is inexpensive.
+Thus, because the improvement is essentially for free, we believe there is no reason not to use \xgs in preference to GNN-graphs.
+%The speedup is achieved by eliminating redundant computation and unnecessary data transfers in GNN computation.
+
+%We now compare the end-to-end training performance of ordinary graphs and \xgs on two GNN models. Figure~\ref{fig:compare_training} shows the comparison results.
+%Both GCN and GCN-P use unordered aggregations, and GraphSAGE-LSTM uses sequential aggregations.
+%GraphSAGE-LSTM requires an ordering on each node's neighbors. For each node, we order its neighbors by their degrees. 
+%Compared to directly training GNN models on ordinary graphs, \xgs maintain the same network accuracy while reducing the end-to-end training time by up to 47\%. 
+%The performance improvement is achieved by eliminating redundant computation and reducing unnecessary memory accesses in neighborhood aggregations.
+%This shows that \xg provides a more efficient graph representation to train GNNs.
+
+\subsection{Aggregation Performance}
+\label{subsec:eval_agg}
+We further compare the aggregation performance of GNN-graphs and \xgs on the following two metrics: (1) the number of binary aggregations performed in each GNN layer; and (2) the amount of data transfers between GPU threads to perform the aggregations.
+
+%\jure{Here you need to explain the evaluation metrics. You need to define what does it mean to count the number of aggregations and (more importantly) what is the number of data transfers. Explain precisely what do we measure.}
+
+%We further analyze the performance of \xgs and standard graphs by comparing the computation costs and data transfers to perform neighborhood aggregations in each computation graph.
+%The computation cost to perform neighborhood aggregations is measured by the number of binary aggregations involved in the graph.
+
+%Training a GNN model on ordinary graphs and their equivalent \xgs achieve the same model accuracy, and they only differ in the neighborhood aggregation scheme.
+%Therefore, we first evaluate the aggregation performance on ordinary graphs and their equivalent \xgs found by the greedy algorithm.
+%We compare the computation costs and memory accesses to perform neighborhood aggregations.
+
+Figure~\ref{fig:comapre_aggregation} shows the comparison results.
+For GNNs with set aggregations, \xgs reduce the number of aggregations by 1.5-6.3$\times$ and reduce the amount of data transfers between GPU threads by 1.3-5.6$\times$. 
+For GNNs with sequential aggregations, \xgs reduce the number of aggregations and data transfers by up to 1.8$\times$ and 1.9$\times$, respectively.
+
+Although the search algorithm finds a globally optimal \xg for sequential aggregations (Theorem~\ref{thm3}) and a $(1-1/e)$-approximation of globally optimal \xgs for set aggregations (Theorem~\ref{thm4}), we observe the performance improvement is more significant for set aggregations.
+Optimality for \xgs with sequential and set aggregations are of course different problems.
+Because set aggregations can be reordered to eliminate more redundant aggregations, higher performance is possible for \xgs with set aggregations, though optimal solutions are more difficult to compute.
+%This is because the greedy algorithm can opportunistically reorder aggregations to further eliminate redundant aggregations.
+
+It is also worth noting that the \xg search algorithm can find highly optimized \xgs even on very sparse graphs.
+For example, on the COLLAB dataset with a graph density of 0.01\%, the \xg search algorithm reduces the number of aggregations and data transfers by 3.3$\times$ and 2.2$\times$ for set aggregations, respectively.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[scale=0.32]{figures/cost_model.pdf}
+    \vspace{-4mm}
+    \caption{Relations between the capacities of different \xgs and their per-epoch GCN training time on the COLLAB dataset. The squares show the training time of \xgs with different capacities. The red line indicates the training time of the best discovered \xg by the search algorithm.}
+    \label{fig:capacity}
+\end{figure}
+
+\subsection{Capacity}
+\label{subsec:eval_para}
+We study how different values of capacity affect the runtime performance of the generated \xgs. 
+Recall that capacity is an upper bound on the number of aggregation nodes in a \xg.
+In the cost model, a larger value of capacity allows the \xg search algorithm to eliminate more redundant aggregations and therefore achieves lower cost.
+
+Figure~\ref{fig:capacity} shows that a larger value of {\em capacity} can consistently improve the end-to-end training performance, which indicates that the cost model is an appropriate metric to evaluate and compare the performance of different \xgs.
+
+By gradually releasing the capacity constraint, the search algorithm eventually finds a \xg with $\sim$150K aggregation nodes, which consume 6MB of memory (0.1\% memory overhead) while improving the training performance by 2.8$\times$.
