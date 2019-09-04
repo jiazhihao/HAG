@@ -1,0 +1,144 @@
+\section{Introduction}
+\label{sec:intro}
+Graphs provide a natural way to represent real-word data with relational structures, such as social networks, molecule networks, and webpage graphs. 
+Recent work has extended deep neural networks (DNNs) to model graph structured data, and the resulting architectures, known as graph neural networks (GNNs), have recently achieved state-of-the-art prediction performance across a number of graph structured tasks, including vertex classification, graph classification, and link prediction~\cite{GCN, GraphSAGE, DiffPool, GIN}.
+GNNs combine DNN operations (e.g., convolution and matrix multiplication) with iterative graph propagation: in each GNN layer, the activations of each vertex is computed (with DNN operations) by using the activations of its neighbors from the previous GNN layer as inputs.
+
+Despite the potential of GNNs, existing deep learning frameworks cannot support GNN training and inference at scale.
+Existing frameworks such as TensorFlow~\cite{TensorFlow}, PyTorch~\cite{PyTorch}, and Caffe2~\cite{Caffe2} were originally designed to perform DNN computation on small and regular input samples, such as images and texts.
+For each input sample, all DNN computations and intermediate results related to the input are performed and saved on a single GPU device.
+This design prevents existing frameworks from supporting large irregular inputs (e.g., large webpage graphs) that do not fit on a single device.
+%
+Recent GNN frameworks such as DGL~\cite{DGL} and PyG~\cite{PyG} are implemented on top of PyTorch~\cite{PyTorch}, and therefore have the same scalability limitation.
+%
+This lack of system support for large-scale graphs has limited the exploration of GNN architectures at scale.
+
+%% Sampling approach
+Recent work alleviates this limitation by introducing various {\em sampling} techniques~\cite{GraphSAGE, PinSAGE} that reduce the graph size by down sampling the original graph and only performing training on the sampled subgraph.
+This approach allows existing frameworks to train larger graphs at the cost of potential model accuracy loss~\cite{GraphSAGE}.
+
+%% Challenges
+Supporting high-performance and large-scale GNN training and inference requires addressing two system challenges.
+
+\paragraph{Memory management.}
+Current deep learning frameworks (e.g., TensorFlow and PyTorch) rely on users to explicitly decide the memories to save the input and output tensors of the DNN operations.
+This approach works for small input samples whose intermediate tensors fit in the GPU memory.
+However, for GNN training and inference on large-scale graphs, more sophisticated memory management is necessary to minimize data transfers across devices while maximize the overall runtime performance.
+The memory management is hard to optimized manually at the application level as the optimal strategy depends on both the input graph sizes and the device capacities.
+
+\ZJ{OLD VERSION: 
+Due to the highly connected nature of real-world graphs, graph propagations in GNNs could easily involve a large portion of a graph.
+Therefore, computing the activations of even a single vertex requires accessing the activations of a large amount of vertices, resulting in large intermediate tensors in both GNN training and inference.
+%
+Meanwhile, today's hardware accelerators such as GPUs require mapping all input and output tensors onto the limited device memory to achieve maximized performance.}
+%
+%Due to the iterative graph propagations in GNNs, GNN computation generally requires processing all vertices simultaneously, resulting in large intermediate tensors in both GNN training and inference.
+%On the other hand, today's hardware accelerators such as GPUs require storing the input and output tensors of a DNN operation on the limited GPU device memory in order to maximize GPU performance.
+%As a result, memory management is required to maximize GPU performance while minimizing data transfers between CPU DRAM and GPU device memory.
+
+\paragraph{Graph partitioning.}
+Existing frameworks parallelize training across multiple devices use {\em data parallelism} that equally partitions the training samples, assuming identical computation across them. 
+However, GNNs are designed to apply to real-world graphs with arbitrary sizes, and even within a graph, vertices have various computation workload due to the power-law nature~\cite{PowerGraph}.
+Graph partitioning is even more challenging for distributed GNN inference on new input graphs, where no existing performance measurements on the graph are available.
+
+\ZJ{OLD VERSION: 
+Existing DL frameworks (e.g., TensorFlow and PyTorch) assume identical workload across training samples.
+For example, all input images to a CNN should have the same shape and include the same computation.
+Based on this assumption, current DL frameworks use {\em data parallelism} that equally partitions training samples across devices to achieve balanced workload distribution.
+However, GNNs are designed for real-world graphs with arbitrary sizes, and even within a graph, vertices have various computation workload due to the power-law nature~\cite{PowerGraph}.
+As a result, equal partitioning only achieves suboptimal performance for real-world graphs~\cite{Lux}.
+}
+
+%%% Our Approach
+In this paper, we propose \Sys, a distributed multi-GPU framework for high-performance GNN training and inference at large scale. \Sys includes two key techniques for accelerating GNN training and inference.
+
+\paragraph{Dynamic programming (DP)-based memory management.}
+%
+\Sys optimizes GPU memory management by coordinating which subset of tensors to save in the GPU memory to maximize tensor reuses while minimizing data transfers between CPU and GPU memories.
+We formulate memory management as a cost minimization problem, and introduce a {\em state-compression dynamic programming} algorithm to quickly find a {\em global optimal} strategy for managing GPU memory that minimizes data transfers between CPU and GPU.
+We compare the \Sys DP-based memory management with existing heuristic approaches, and show that \Sys reduces data communication between CPU and GPU by YYY$\times$.
+
+\paragraph{Machine learning (ML)-based graph partitioning.}
+\Sys optimizes graph partitioning by exploiting the GNN training process.
+In addition to learning the weights of a GNN architecture during training, \Sys jointly learns a {\em cost model} that estimates to run time to perform a GNN operator on an arbitrary input graph.
+The difference between the predicted and actual run time of the GNN operators becomes the gradients to the cost model.
+The learned cost model is independent to particular input graphs, and allows \Sys to estimate the performance of different graph partitioning even for new inference graphs that are not used in training.
+
+\ZJ{OLD VERSION: 
+\Sys exploits the learning nature of GNN applications, and jointly learns a cost model for predicting the runtime performance of different partitions during the training process.
+The difference between the predicted and actual runtime becomes the gradients to the cost model. 
+The learned cost model is independent to particular input graphs, and allows \Sys to achieve efficient partitioning on new inference graphs that haven't been used in training.
+}
+
+%The two techniques allow \Sys to efficiently perform training and inference on more sophisticated GNN architectures and larger graphs that do not fit on a single device.
+The two techniques allow \Sys to achieve fast distributed GNN training and inference on large-scale graphs.
+Our evaluation on three GNN architectures and five real-world graphs shows that \ZJ{summarize runtime performance experiments}.
+
+% model evaluations
+In addition to accelerating GNN training and inference, \Sys also enables the exploration of more sophisticated GNN architectures beyond the commonly used 2-layer GNNs.
+First, we studied the performance and model accuracy tradeoff between state-of-the-art sampling approaches and performing exact GNN computation on large graphs enabled by \Sys.
+Our experiments show that performing exact GNN computation on the original graphs improve the model accuracy by 2-3\% compared to the sampling techniques.
+
+%
+Second, we performed a detailed study on the model accuracy of GNN architectures with different depths (i.e., number of layers) and widths (i.e., number of activations per layer).
+Our study shows that increasing the width and depth of GNN architectures can further improve the model accuracy by up to 1\% compared to today's commonly used 2-layer GNNs.
+
+%% Summary
+To summarize, our contributions are:
+\begin{itemize}
+\item On the system side, we present \Sys, a distributed multi-GPU framework for fast large-scale GNNs.
+\Sys includes a novel state-compression dynamic programming algorithm to minimize data transfers between CPU and GPU,
+ and uses a ML-based approach to achieve efficient graph partitioning for both GNN training and inference.
+%To efficiently manage GPU device memory, \Sys introduces a novel dynamic programming algorithm to find a global optimal memory management strategy that minimizes data transfers between CPU and GPU.
+%To achieve efficient graph partitioning across multiple GPUs, \Sys involves a 
+\item On the model side, \Sys enables the exploration of more sophisticated GNN architectures for large-scale graphs. 
+We show that performing exact GNN computation improves the model accuracy by 2-3\% compared to sate-of-the-art sampling approaches for large real-world graphs.
+We also show that improved model accuracy can be obtained by increasing the width and depth of GNN architectures. 
+\end{itemize}
+
+\section{Old Introduction}
+
+However, existing deep learning frameworks cannot sufficiently support GNN algorithms, and this lack of system support has limited the full potential of GNN architectures from being explored.
+Deep learning frameworks such as TensorFlow~\cite{TensorFlow}, PyTorch~\cite{PyTorch}, and Caffe2~\cite{Caffe2} are designed to perform DNN computation on small and regular inputs, such as images and texts.
+
+Graph neural networks (GNNs) are becoming an increasingly important class of deep learning architectures, due to its unique ability to learn and reason about graph structured data, such as social networks, molecule networks, and webpage graphs~\cite{GCN, GraphSAGE, DiffPool, GIN}.
+Unlike conventional neural network architectures (e.g., CNNs and RNNs) that perform computation on spatial regular data structures such as image, video, and text, GNNs operate 
+
+
+Existing graph processing systems~\cite{Pregel, Giraph, GraphX, Lux} adopt the
+Gather-Apply-Scatter (GAS)~\cite{PowerGraph} vertex-centric programming model,
+but cannot express and support many neural network operators on graphs, such as computing attention scores between vertices not directly connected by edges~\cite{GraphAttention}.
+%
+On the other hand, existing deep learning frameworks (e.g., TensorFlow~\cite{TensorFlow}, PyTorch~\cite{PyTorch}, and Caffe2~\cite{Caffe2}) are designed for spatial high-dimensional data structures, such as images and texts, but cannot efficiently support irregular graph structures.
+%
+Recent work~\cite{DGL, PyG} have existing PyTorch to support 
+
+Large and irregular real-world graphs in GNNs bring two system challenges that have not yet received enough considerations in existing deep learning or graph processing frameworks.
+
+\paragraph{Graph partitioning.}
+Existing DL frameworks (e.g., TensorFlow and PyTorch) assume identical workload across training samples.
+For example, all input images to a CNN should have the same shape and include same computation workload.
+Based on this assumption, current DL frameworks use {\em data parallelism} that equally partitions training samples across devices to achieve balanced workload distribution.
+However, GNNs are designed for real-world graphs with arbitrary sizes, and even within a graph, vertices have various computation workload due to the power-law nature of real-world graphs~\cite{PowerGraph}.
+As a result, equal partitioning only achieves suboptimal performance for GNNs~\cite{Lux}.
+%
+%This strategy works for GNN datasets with small same-sized graphs,
+% but achieves suboptimal performance for real-world power-law graphs, where different vertices involve different amounts of computation based on its neighbors.
+%%
+
+Existing graph processing frameworks use {\em static partitioning} or {\em dynamic repartitioning} to optimize distributed performance.
+%
+For example, PowerGraph~\cite{PowerGraph} and GraphX~\cite{GraphX} statically partition an input graph by minimizing an objective function, such as the number of edges spanning different partitions.
+Static partition achieves good performance on graph processing applications, but is impractical for GNNs~\cite{Lux}.
+%
+Dynamic repartitioning~\cite{Presto} exploits the iterative nature of many graph processing applications (e.g., PageRank) and dynamically rebalance the workload distribution based on the measured performance of previous partitions.
+However, dynamic repartitioning cannot apply to GNN inference, since 
+ 
+\paragraph{Memory management.}
+GNN computation generally requires processing all vertices simultaneously, due to the graph propagation operations in GNNs, resulting in large intermediate tensors in both GNN training and inference.
+Existing DL frameworks (e.g., TensorFlow, DGL) requires saving the input and output tensors of an operator in the GPU memory in order to process the operator on the GPU.
+This prevent current DL frameworks from processing large graphs that do not fit in the GPU memory.
+%
+Meanwhile, NeuGraph~\cite{NeuGraph} and many graph processing frameworks~\cite{GTS} use a {\em streaming} approach that splits an input graph into multiple subgraphs and processes the subgraphs sequentially on GPUs.
+Processing a subgraph on GPU requires loading the attributes of all vertices associated with the subgraph.
+This involves negligible overhead for graph processing with scalar attributes, but introduces significant overhead for GNNs, whose vertex attributes are generally high-dimensional tensors.

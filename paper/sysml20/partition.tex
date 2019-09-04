@@ -1,0 +1,29 @@
+\section{Graph Partitioner}
+\label{sec:partition}
+\begin{table}
+\caption{The features used in the cost model.}
+\begin{tabular}{|l|l|}
+\hline
+{\bf Math Definition} & {\bf Feature Description} \\
+\hline
+1 & 1 \\
+$|\mathcal{N}(v)|$ & \\
+$|\{c_i(v)\}|$ &  \\
+$|\mathcal{N}(v)| / |\{c_i(v)\}|$ & \\
+$\sum{\frac{1}{c_i(v)}}$ & \\
+$\sum{c_i(v)^2}$ & \\
+\hline
+\end{tabular}
+\end{table}
+
+The goal of the \Sys graph partitioner is achieved balanced workload partitioning for GNN training and inference on arbitrary input graphs.
+This is especially challenging for performing inference on new graphs, where no performance profilings of the new graphs are available.
+We introduce a {\em machine learning based graph partitioner} that uses runtime performance measurements as training samples, and uses the learned performance to enable efficient partitioning on arbitrary graphs. 
+
+The key component in the \Sys graph partitioner is a {\em cost model} that predicts the execution time of performing a GNN operator on an arbitrary graph, which could be the whole or any subset of the input graph.
+%
+Note that the cost model learns to predict the execution time of a GNN operator instead of an entire GNN model for two reasons.
+First, \Sys exploits the composability of neural network architectures and the learned model can be applied to various GNN models.
+Second, this allows \Sys to gather more training data in each training iteration. 
+For a GNN model with $N$ operators and $P$ partitions, \Sys is able to gather $N\times P$ training samples, while modeling the entire GNN only provides $P$ samples.
+

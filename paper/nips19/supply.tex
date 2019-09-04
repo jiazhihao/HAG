@@ -1,33 +1,29 @@
 \documentclass{article}
-\usepackage{algorithm}
-\usepackage{algpseudocode}
-\usepackage[draft]{hyperref}
-\usepackage{url}
-\usepackage{listings}
-\usepackage{pifont}
-\usepackage{tikz}
-\usepackage{subfig}
-\usepackage{multirow}
-\usepackage{pgfplots}
-\usepackage{booktabs}
-\usepackage{dcolumn}
-\usepackage{cancel}
-\usepackage{ifmtarg}
-\usepackage{verbatim}
-\usepackage{graphicx}
-\usepackage{chngpage}
+\PassOptionsToPackage{numbers, compress}{natbib}
+\usepackage{neurips_2019}
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
 \usepackage{xspace}
-\usepackage{balance}
+\usepackage{graphicx}
+\usepackage[noend]{algpseudocode}
+\usepackage{algorithm}
+\usepackage{threeparttable}
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{amsthm}
 \usepackage{cleveref}
+\usepackage{subfig}
+\usepackage{wrapfig}
+\usepackage{enumitem}
 
-\usepackage{microtype}
-\usepackage{booktabs} % for professional tables
-\usepackage[accepted]{icml2019}
-
-\newcommand{\theHalgorithm}{\arabic{algorithm}} 
+%
+%\newcommand{\theHalgorithm}{\arabic{algorithm}} 
 \newcommand{\er}[1]{\mbox{\rm\em #1}}
 \newcommand{\sys}{LuxGNN\xspace}
 \newcommand{\xg}{HAG\xspace}
@@ -37,11 +33,16 @@
 \newcommand{\m}[1] {\mathcal{#1}}
 \newtheorem{theorem}{Theorem}
 
+\title{Supplemental Materials for: \\ Redundancy-Free Computation Graphs for \\ Graph Neural Networks}
+\author{%
+aaa\\
+bbb
+}
+
 \begin{document}
-\twocolumn[
-\icmltitle{Supplemental Materials for: Redundancy-Free Computation Graphs for Graph Neural Networks}
-\vskip 0.3in
-]
+\maketitle
+\appendix
+
 \section{Proof of Theorem 1}
 \begin{theorem}
 \label{thm2}
@@ -154,6 +155,29 @@ By taking in the definition of $f(\cdot)$, we have
 $$
 \er{cost}(\m{M}, \mw{G}) \leq \frac{1}{e} \er{cost}(\m{M}, \m{G}) + \frac{e-1}{e} \er{cost}(\m{M}, \mw{G}_o)
 $$
+\end{proof}
+
+\section{Time Complexity of Algorithm 3}
+\begin{theorem}
+The overall time complexity of Algorithm 3 is $O(\er{capacity} \times |\m{V}| + |\m{E}| \times \log|\m{V}|)$.
+\end{theorem}
+
+\begin{proof}
+We use a {\em heap} to maintain the redundancy score of each potential node pair and only update the heap when we add and remove edges in $\mw{E}$.
+%Table~\ref{tab:} shows the time complexity of the graph search algorithm.
+Since the depth of the heap is at most $O(\log|\m{V}|)$~\footnote{This is because there can be at most $O(|\m{V}|^2)$ node pairs.}, querying the most redundant binary aggregation and modifying $\mw{E}$ each takes $O(\log|\m{V}|)$ time.
+
+First, we calculate the number of queries and updates to the heap structure:
+\begin{itemize}
+\item The algorithm iteratively pull the most redundant binary aggregation from the heap and add it to $\m{V}_A$. Since the number of vertices in $\m{V}_A$ is smaller than $\er{capacity}$, the total number of queries is $O(\er{capacity})$.
+\item The algorithm inserts two new edges into $\mw{E}$ in line 16 and removes one edge from $\mw{E}$ in line 19. Since line 16 can be invoked at most $O(\er{capacity})$ times, the total number of invocations to line 19 is $O(|\m{E}| + 2\times \er{capacity})$. Therefore, the overall number of updates is $O(|\m{E}| + \er{capacity})$.
+\end{itemize}
+
+Second, the enumeration over all vertices in $\m{V}$ (line 17) involves time complexity of $O(\er{capacity} \times |\m{V}|)$. Therefore, the overall time complexity of Algorithm 3 is 
+\begin{eqnarray*}
+& & O\big(\er{capacity} \times |\m{V}| + (|\m{E}| + \er{capacity} ) \times \log|\m{V}|\big) \\
+& & = O(\er{capacity} \times |\m{V}| + |\m{E}| \times \log|\m{V}|)
+\end{eqnarray*}
 \end{proof}
 
 \bibliographystyle{icml2019}

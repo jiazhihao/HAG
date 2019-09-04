@@ -1,0 +1,65 @@
+\section{Related Work}
+\label{sec:related}
+\begin{table}
+\caption{The graph partitioning strategies used by different frameworks. 
+Balanced training and inference indicate whether an approach can achieve balanced workload partitioning for GNN training and inference, respectively.}
+\label{tab:graph_partition}
+\resizebox{\columnwidth}{!}{
+\begin{tabular}{|l|l|c|c|}
+\hline
+{\bf Frameworks} & {\bf Partitioning} & {\bf Balanced} & {\bf Balanced} \\
+& {\bf Strategies} & {\bf Training} & {\bf Inference} \\
+\hline
+%\multicolumn{4}{|c|}{Deep learning frameworks} \\
+%\hline
+TensorFlow, NeuGraph & equal partitioning & & \\
+%\hline
+%\multicolumn{4}{|c|}{Graph processing frameworks} \\
+%\hline
+GraphX, Gemini & static partitioning & & \\
+Lux, Presto & dynamic repartitioning & \checkmark & \\
+%\hline
+%\hline
+\Sys (ours) & ML-based partitioning & {\bf \checkmark} & \checkmark \\
+\hline
+\end{tabular}
+}
+\end{table}
+
+\paragraph{Deep learning frameworks} were originally designed to support DNN operations on small input samples such as images and texts~\cite{TensorFlow, PyTorch, Caffe2}.
+Existing frameworks currently do not support large input sample whose computations do not fit in a single device.
+DGL~\cite{DGL} and PyG~\cite{PyG} extend PyTorch to support DNN operations on graph-structured inputs, but have the same scalability limitation.
+
+NeuGraph~\cite{NeuGraph} uses a {\em streaming} approach that splits an input graph into multiple \ZJ{compare against NeuGraph}.
+
+\paragraph{Optimizing distributed DNN training.}
+Recent work has proposed various approaches to automatically discover efficient parallelization strategies for distributed DNN training.
+For example, ColorRL~\cite{DevicePlace} uses reinforcement learning to find efficient device placement for model parallelism across multiple CPUs.
+FlexFlow~\cite{FlexFlow, OptCNN} introduces a comprehensive search space of parallelization strategies for DNN training, and uses randomized search to find efficient strategies in the search space.
+These approaches optimize distributed DNN training {\em statically} by assuming fixed computation workload in each training iteration.
+However, GNN training 
+
+\paragraph{Graph processing frameworks.}
+A number of distributed graph processing frameworks have been proposed for accelerating graph applications, such as PageRank, BFS, and Connected Components~\cite{Pregel, GraphX, Lux}.
+Existing graph processing frameworks generally adopt the Gather-Apply-Scatter (GAS)~\cite{PowerGraph} vertex-centric programming model. 
+The GAS model can naturally express graph propagations in GNNs, but cannot support many neural network operations in GNN architectures
+For example, computing attention scores~\cite{GraphAttention} between vertices not directly connect by edges cannot be expressed in the GAS model.
+
+\paragraph{Graph sampling.}
+Recent work has proposed a number of sampling techniques to reduce the computation and memory footprints in GNN training,
+allowing existing frameworks to support larger GNN architectures and input graphs~\cite{GraphSAGE, PinSAGE, FastGCN}.
+In our experiments, we found that today's sampling techniques come with potential model accuracy loss for large real-world graphs.
+This observation is consistent with previous work~\cite{GraphSAGE}.
+\Sys provides an orthogonal approach to enable large-scale GNN, and all existing sampling techniques can be applied in \Sys to further accelerate large-scale GNN training.
+
+\paragraph{Graph partitioning.}
+Table~\ref{tab:graph_partition} summarizes the graph partitioning strategies used in existing deep learning and graph processing frameworks.
+Deep learning frameworks~\cite{TensorFlow, NeuGraph} use {\em equal partitioning} across GPUs by assuming balanced workload distribution.
+
+Existing graph processing frameworks use {\em state partitioning} or {\em dynamic repartitioning} to optimized distributed performance.
+For example, GraphX~\cite{GraphX} and~\cite{Gemini} statically partition an input graph by minimizing an objective function, such as the number of edges spanning different partitions.
+Static partitioning achieves good performance for the data-intensive graph processing applications, but is impractical for the compute-intensive GNNs~\cite{Lux}.
+Dynamic repartitioning~\cite{Presto} exploits the iterative nature of many graph processing applications (e.g., PageRank) and dynamically rebalance the workload distribution based on the measured performance of previous partitions.
+Dynamic repartitioning can adaptively achieve balanced workload distribution for GNN training, but does not work for GNN inference, in which case the GNN model is computed only once for each new graph.
+
+\Sys uses {\em ML-based partitioning} and learns the runtime performance of a GNN architecture on arbitrary graphs along with training. This allows \Sys to compute balanced partitioning for both GNN training and inference, and our experiments show that \ZJ{experimental results}.
